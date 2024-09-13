@@ -2772,7 +2772,7 @@ async function checkLetters() {
                   localStorage.setItem("previousCount", "0");
                 }
               } else {
-                console.log("You don't have any new letters");
+                console.log("You don't have any new letters.");
               }
             } else {
               console.log("The list of ul with class 'nohide' was not found");
