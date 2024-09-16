@@ -39,6 +39,6 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "index.html"
   }
 }
