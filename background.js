@@ -2578,6 +2578,7 @@ async function closeAndRetry() {
 
 async function connectWebSocket() {
   try {
+    //test
     //await getAnyDreamTab();
     let { userName } = await chrome.storage.local.get("userName");
     userName = userName || "";
