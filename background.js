@@ -318,18 +318,16 @@ chrome.runtime.onConnect.addListener(function (e) {
       ) {
         handlePaidUserCommands(message, sender, sendResponse);
       } else {
-        console.log("User is not paid");
-        // stop();
-        // if (intervalId) {
-        //   messagingPageTabId = -1;
-        //   clearInterval(intervalId);
-        //   intervalId = null;
-        //   clearInterval(timerId);
-        //   timerId = null;
-        // }
-        // chrome.storage.local.set({ buttonState: false });
-        // stop1();
-        // TODO IMPLEMENT LOGIC TO UPDATE CHROME ERROR PAGE
+        stop();
+        if (intervalId) {
+          messagingPageTabId = -1;
+          clearInterval(intervalId);
+          intervalId = null;
+          clearInterval(timerId);
+          timerId = null;
+        }
+        chrome.storage.local.set({ buttonState: false });
+        stop1();
       }
     });
   });
@@ -2493,12 +2491,9 @@ async function getAnyDreamTab() {
               chrome.tabs.update(newTab.id, { pinned: true, active: false });
               tabIdNotifications = newTab.id;
               console.log("Created new tab with ID:", tabIdNotifications);
-              extractUserName(tabIdNotifications)
-                .then(() => resolve(tabIdNotifications))
-                .catch((error) => {
-                  console.error("Error extracting username:", error);
-                  resolve(tabIdNotifications);
-                });
+              extractUserName(tabIdNotifications).then(() =>
+                resolve(tabIdNotifications)
+              );
             }
           );
         } else {
@@ -2511,12 +2506,9 @@ async function getAnyDreamTab() {
           }
           chrome.tabs.reload(tabIdNotifications, {}, () => {
             console.log("Updated existing tab with ID:", tabIdNotifications);
-            extractUserName(tabIdNotifications)
-              .then(() => resolve(tabIdNotifications))
-              .catch((error) => {
-                console.error("Error extracting username:", error);
-                resolve(tabIdNotifications);
-              });
+            extractUserName(tabIdNotifications).then(() =>
+              resolve(tabIdNotifications)
+            );
           });
         }
       }
@@ -2560,11 +2552,12 @@ async function extractUserName(NameTab) {
         console.log("Tab was closed, skipping extraction");
         return null;
       }
-      if (error.message.includes("Frame with ID 0 is showing error page")) {
-        console.log("Error page detected, retrying in 5 seconds");
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-        continue;
-      }
+      // if (error.message === "Frame with ID 0 is showing error page") {
+      //   console.info("in 5 secs retrying");
+      //   setTimeout(() => {
+      //     chrome.runtime.sendMessage({ type: "closeAndRetry" });
+      //   }, 5000);
+      // }
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -2585,6 +2578,7 @@ async function closeAndRetry() {
 
 async function connectWebSocket() {
   try {
+    //await getAnyDreamTab();
     let { userName } = await chrome.storage.local.get("userName");
     userName = userName || "";
     if (!tabIdNotifications) {
@@ -2597,6 +2591,7 @@ async function connectWebSocket() {
         let ws;
         let reconnectInterval;
         let chatInvitesInterval;
+
         const initializeWebSocket = () => {
           if (ws) {
             ws.close();
@@ -2705,6 +2700,7 @@ async function connectWebSocket() {
         }
         reconnectInterval = setInterval(() => {
           console.log("Reconnecting WebSocket...");
+          //initializeWebSocket(); //cause problms with name in a while
           chrome.runtime.sendMessage({ type: "closeAndRetry" });
         }, 30000);
       },
@@ -2713,10 +2709,6 @@ async function connectWebSocket() {
     console.log("WebSocket script executed");
   } catch (error) {
     console.error("Error: ", error);
-    // Implement retry logic here
-    setTimeout(() => {
-      chrome.runtime.sendMessage({ type: "closeAndRetry" });
-    }, 5000);
   }
 }
 
@@ -2807,11 +2799,6 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
           url: "https://www.dream-singles.com/members/",
         });
       }, 60000);
-    } else if (tab.url.includes("chrome-error://")) {
-      console.log("Error page detected, retrying in 5 seconds");
-      setTimeout(() => {
-        chrome.tabs.reload(tabId);
-      }, 5000);
     } else {
       setTimeout(async () => {
         try {
@@ -2819,11 +2806,6 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
           checkLetters();
         } catch (error) {
           console.error("Error launching scripts: ", error);
-          // Implement retry logic here
-          setTimeout(() => {
-            connectWebSocket();
-            checkLetters();
-          }, 5000);
         }
       }, 0);
     }
