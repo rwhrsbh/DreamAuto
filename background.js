@@ -319,16 +319,16 @@ chrome.runtime.onConnect.addListener(function (e) {
         handlePaidUserCommands(message, sender, sendResponse);
       } else {
         console.log("not paid");
-        // stop();
-        // if (intervalId) {
-        //   messagingPageTabId = -1;
-        //   clearInterval(intervalId);
-        //   intervalId = null;
-        //   clearInterval(timerId);
-        //   timerId = null;
-        // }
-        // chrome.storage.local.set({ buttonState: false });
-        // stop1();
+        stop();
+        if (intervalId) {
+          messagingPageTabId = -1;
+          clearInterval(intervalId);
+          intervalId = null;
+          clearInterval(timerId);
+          timerId = null;
+        }
+        chrome.storage.local.set({ buttonState: false });
+        stop1();
       }
     });
   });
@@ -2469,7 +2469,7 @@ async function getAnyDreamTab() {
         pinned: true,
         url: "https://www.dream-singles.com/members/",
       },
-      function (tabs) {
+      async function (tabs) {
         const excludedPatterns = [
           "https://www.dream-singles.com/members/messaging/bot/*",
           "https://www.dream-singles.com/members/chat/*",
@@ -2488,13 +2488,12 @@ async function getAnyDreamTab() {
               pinned: true,
               active: false,
             },
-            function (newTab) {
+            async function (newTab) {
               chrome.tabs.update(newTab.id, { pinned: true, active: false });
               tabIdNotifications = newTab.id;
               console.log("Created new tab with ID:", tabIdNotifications);
-              extractUserName(tabIdNotifications).then(() =>
-                resolve(tabIdNotifications)
-              );
+              await extractUserName(tabIdNotifications);
+              resolve(tabIdNotifications);
             }
           );
         } else {
@@ -2505,32 +2504,34 @@ async function getAnyDreamTab() {
               active: false,
             });
           }
-          chrome.tabs.reload(tabIdNotifications, {}, () => {
+          chrome.tabs.reload(tabIdNotifications, {}, async () => {
             console.log("Updated existing tab with ID:", tabIdNotifications);
-            extractUserName(tabIdNotifications).then(() =>
-              resolve(tabIdNotifications)
-            );
+            await extractUserName(tabIdNotifications);
+            resolve(tabIdNotifications);
           });
         }
       }
     );
   });
 }
+
 async function extractUserName(NameTab) {
-  const maxAttempts = 5;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+  const maxAttempts = 3000;
+  let attempt = 0;
+
+  while (attempt < maxAttempts) {
     try {
-      const tab = await chrome.tabs.get(NameTab).catch(() => null);
-      if (!tab) {
-        console.log("Tab does not exist, skipping extraction");
-        return null;
-      }
+      const tab = await chrome.tabs.get(NameTab);
 
       if (tab.url.startsWith("chrome-error://")) {
-        console.log("Detected error page URL:", tab.url);
-        console.log("Retrying in 5 seconds...");
+        console.log(
+          `Detected error page URL: ${tab.url}, attempt ${
+            attempt + 1
+          } of ${maxAttempts}`
+        );
         await new Promise((resolve) => setTimeout(resolve, 5000));
         await chrome.tabs.reload(NameTab);
+        attempt++;
         continue;
       }
 
@@ -2557,17 +2558,22 @@ async function extractUserName(NameTab) {
       }
     } catch (error) {
       console.error("Error extracting user name:", error);
+      if (error.message.includes("Frame with ID 0 is showing error page")) {
+        console.log("Frame error detected, retrying...");
+        await new Promise((resolve) => setTimeout(resolve, 10000));
+        await chrome.tabs.reload(NameTab);
+      }
     }
 
-    // Делаем паузу перед следующей попыткой
     await new Promise((resolve) => setTimeout(resolve, 1000));
+    attempt++;
   }
 
-  // Если не удалось извлечь имя пользователя после всех попыток
-  console.log("Failed to extract user name after", maxAttempts, "attempts");
+  console.log(`Failed to extract user name after ${maxAttempts} attempts`);
   await chrome.storage.local.set({ userName: "" });
   return null;
 }
+
 async function closeAndRetry() {
   if (tabIdNotifications) {
     await chrome.tabs.remove(tabIdNotifications);
@@ -2580,7 +2586,6 @@ async function closeAndRetry() {
 
 async function connectWebSocket() {
   try {
-    //test
     //await getAnyDreamTab();
     let { userName } = await chrome.storage.local.get("userName");
     userName = userName || "";
@@ -2794,23 +2799,37 @@ async function checkLetters() {
     console.error("Error executing check letters script:", error);
   }
 }
-chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
-  if (tabId === tabIdNotifications && changeInfo.status === "complete") {
+let isScriptRunningNotifications = false;
+
+function resetScriptRunningFlag() {
+  isScriptRunningNotifications = false;
+}
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (
+    tabId === tabIdNotifications &&
+    changeInfo.status === "complete" &&
+    !isScriptRunningNotifications
+  ) {
+    isScriptRunningNotifications = true;
+
     if (tab.url === "https://www.dream-singles.com/login") {
       setTimeout(() => {
         chrome.tabs.update(tabId, {
           url: "https://www.dream-singles.com/members/",
         });
+        resetScriptRunningFlag();
       }, 60000);
     } else {
-      setTimeout(async () => {
-        try {
-          await connectWebSocket();
-          checkLetters();
-        } catch (error) {
-          console.error("Error launching scripts: ", error);
-        }
-      }, 0);
+      try {
+        await extractUserName(tabId);
+        await connectWebSocket();
+        await checkLetters();
+      } catch (error) {
+        console.error("Error launching scripts: ", error);
+      } finally {
+        console.log("it's OK skript running with no problems");
+        resetScriptRunningFlag();
+      }
     }
   }
 });
