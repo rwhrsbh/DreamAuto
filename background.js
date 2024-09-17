@@ -2705,7 +2705,7 @@ async function connectWebSocket() {
         }
         reconnectInterval = setInterval(() => {
           console.log("Reconnecting WebSocket...");
-          initializeWebSocket();
+          chrome.runtime.sendMessage({ type: "closeAndRetry" });
         }, 30000);
       },
       args: [userName],
@@ -2714,7 +2714,9 @@ async function connectWebSocket() {
   } catch (error) {
     console.error("Error: ", error);
     // Implement retry logic here
-    setTimeout(connectWebSocket, 5000);
+    setTimeout(() => {
+      chrome.runtime.sendMessage({ type: "closeAndRetry" });
+    }, 5000);
   }
 }
 
