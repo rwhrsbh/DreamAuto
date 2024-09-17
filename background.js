@@ -319,16 +319,16 @@ chrome.runtime.onConnect.addListener(function (e) {
         handlePaidUserCommands(message, sender, sendResponse);
       } else {
         console.log("not paid");
-        stop();
-        if (intervalId) {
-          messagingPageTabId = -1;
-          clearInterval(intervalId);
-          intervalId = null;
-          clearInterval(timerId);
-          timerId = null;
-        }
-        chrome.storage.local.set({ buttonState: false });
-        stop1();
+        // stop();
+        // if (intervalId) {
+        //   messagingPageTabId = -1;
+        //   clearInterval(intervalId);
+        //   intervalId = null;
+        //   clearInterval(timerId);
+        //   timerId = null;
+        // }
+        // chrome.storage.local.set({ buttonState: false });
+        // stop1();
       }
     });
   });
