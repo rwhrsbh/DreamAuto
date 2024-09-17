@@ -318,14 +318,14 @@ chrome.runtime.onConnect.addListener(function (e) {
       ) {
         handlePaidUserCommands(message, sender, sendResponse);
       } else {
-        stop();
-        if (intervalId) {
-          messagingPageTabId = -1;
-          clearInterval(intervalId);
-          intervalId = null;
-          clearInterval(timerId);
-          timerId = null;
-        }
+        // stop();
+        // if (intervalId) {
+        //   messagingPageTabId = -1;
+        //   clearInterval(intervalId);
+        //   intervalId = null;
+        //   clearInterval(timerId);
+        //   timerId = null;
+        // }
         chrome.storage.local.set({ buttonState: false });
         stop1();
       }
@@ -2525,6 +2525,14 @@ async function extractUserName(NameTab) {
         return null;
       }
 
+      if (tab.url.startsWith("chrome-error://")) {
+        console.log("Detected error page URL:", tab.url);
+        console.log("Retrying in 5 seconds...");
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await chrome.tabs.reload(NameTab);
+        continue;
+      }
+
       const result = await chrome.scripting.executeScript({
         target: { tabId: NameTab },
         func: () => {
@@ -2541,27 +2549,20 @@ async function extractUserName(NameTab) {
       });
 
       if (result && result[0] && result[0].result) {
-        userName = result[0].result;
+        const userName = result[0].result;
         await chrome.storage.local.set({ userName: userName });
         console.log("Extracted user name:", userName);
         return userName;
       }
     } catch (error) {
       console.error("Error extracting user name:", error);
-      if (error.message.includes("Frame with ID 0 was removed")) {
-        console.log("Tab was closed, skipping extraction");
-        return null;
-      }
-      // if (error.message === "Frame with ID 0 is showing error page") {
-      //   console.info("in 5 secs retrying");
-      //   setTimeout(() => {
-      //     chrome.runtime.sendMessage({ type: "closeAndRetry" });
-      //   }, 5000);
-      // }
     }
+
+    // Делаем паузу перед следующей попыткой
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
+  // Если не удалось извлечь имя пользователя после всех попыток
   console.log("Failed to extract user name after", maxAttempts, "attempts");
   await chrome.storage.local.set({ userName: "" });
   return null;
