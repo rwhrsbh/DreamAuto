@@ -2742,14 +2742,16 @@ async function checkLetters() {
           try {
             let previousCount = localStorage.getItem("previousCount");
             previousCount = previousCount ? parseInt(previousCount) : null;
-            let ulElement = document.querySelector("ul.nohide");
+            let ulElement = document.querySelector(".col-sm-6.pl10.pr0");
 
             if (ulElement) {
               let myMessagesLink = ulElement.querySelector(
                 'a[href*="/messaging/inbox"]'
               );
               if (myMessagesLink) {
-                let myMessagesSpan = myMessagesLink.querySelector(".new-count");
+                let myMessagesSpan = myMessagesLink.querySelector(
+                  ".total-count.has-new"
+                );
                 if (myMessagesSpan) {
                   let newCountText = myMessagesSpan.textContent.trim();
                   let newCount = parseInt(newCountText);
@@ -2784,7 +2786,7 @@ async function checkLetters() {
                 console.log("You don't have any new letters");
               }
             } else {
-              console.log("The list of ul with class 'nohide' was not found");
+              console.log("The list not found");
             }
           } catch (error) {
             console.error("Error fetching new count element:", error);
@@ -2827,7 +2829,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       } catch (error) {
         console.error("Error launching scripts: ", error);
       } finally {
-        console.log("it's OK skript running with no problems");
+        console.log("it's OK script running with no problems");
         resetScriptRunningFlag();
       }
     }
