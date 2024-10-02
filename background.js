@@ -2981,21 +2981,66 @@ function processTTSQueue() {
     }
     isSpeaking = true;
     const text = ttsQueue.shift();
-    chrome.tts.speak(text, {
-      voiceName: "Google UK English Male",
-      lang: "en-GB",
-      rate: 1.0,
-      pitch: 1.0,
-      volume: 0.8,
-      onEvent: function (event) {
-        if (event.type === "end" || event.type === "error") {
-          isSpeaking = false;
-          processTTSQueue();
+
+    const desiredVoice = "Google UK English Male";
+
+    chrome.tts.getVoices((voices) => {
+      console.log(
+        "Available TTS voices:",
+        voices.map((voice) => `${voice.voiceName} (${voice.lang})`)
+      );
+
+      const findSuitableVoice = () => {
+        let voice = voices.find((v) => v.voiceName === desiredVoice);
+
+        if (!voice) {
+          voice = voices.find(
+            (v) =>
+              v.voiceName.toLowerCase().includes("google") &&
+              (v.lang.startsWith("en-US") || v.lang.startsWith("en-GB"))
+          );
         }
-        if (event.type === "error") {
-          console.error("Error during TTS: " + event.errorMessage);
+
+        if (!voice) {
+          voice = voices.find(
+            (v) => v.lang.startsWith("en-US") || v.lang.startsWith("en-GB")
+          );
         }
-      },
+
+        return voice || voices[0];
+      };
+
+      const voiceToUse = findSuitableVoice();
+
+      chrome.tts.speak(text, {
+        voiceName: voiceToUse.voiceName,
+        lang: voiceToUse.lang,
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 0.8,
+        onEvent: function (event) {
+          if (event.type === "start") {
+            console.log(
+              "TTS started with voice:",
+              voiceToUse.voiceName,
+              "Language:",
+              voiceToUse.lang
+            );
+            if (voiceToUse.voiceName !== desiredVoice) {
+              console.warn(
+                `Desired voice "${desiredVoice}" was not available. Using "${voiceToUse.voiceName}" instead.`
+              );
+            }
+          }
+          if (event.type === "end" || event.type === "error") {
+            isSpeaking = false;
+            processTTSQueue();
+          }
+          if (event.type === "error") {
+            console.error("Error during TTS: " + event.errorMessage);
+          }
+        },
+      });
     });
   }
 }
@@ -3005,9 +3050,19 @@ function playTTS(text) {
   ttsQueue.push(messageWithName);
   processTTSQueue();
 }
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "playTTS") {
     playTTS(message.text);
+  }
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "getAvailableVoices") {
+    chrome.tts.getVoices((voices) => {
+      sendResponse(voices.map((voice) => `${voice.voiceName} (${voice.lang})`));
+    });
+    return true;
   }
 });
 async function sendTelegramMessage(botToken, chatId, message) {
