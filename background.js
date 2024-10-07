@@ -2588,19 +2588,45 @@ async function closeAndRetry() {
 
 async function connectWebSocket() {
   try {
-    //await getAnyDreamTab();
-    let { userName } = await chrome.storage.local.get("userName");
+    let { userName, autoReplyMessage } = await chrome.storage.local.get([
+      "userName",
+      "autoReplyMessage",
+    ]);
+    autoReplyMessage = "Hello";
     userName = userName || "";
     if (!tabIdNotifications) {
       await getAnyDreamTab();
     }
     await chrome.scripting.executeScript({
       target: { tabId: tabIdNotifications },
-      func: (userName) => {
+      func: (userName, autoReplyMessage) => {
         console.log(userName);
         let ws;
         let reconnectInterval;
         let chatInvitesInterval;
+
+        const sendMessage = (ws, message) => {
+          const maxRetries = 10;
+          const retryDelay = 500;
+
+          const trySendMessage = (retryCount) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify(message));
+            } else if (retryCount < maxRetries) {
+              setTimeout(() => {
+                trySendMessage(retryCount + 1);
+                console.log(`Retrying to send message after ${retryDelay} ms`);
+              }, retryDelay);
+            } else {
+              console.error(
+                `Failed to send message after ${maxRetries} retries`
+              );
+              chrome.runtime.sendMessage({ type: "closeAndRetry" });
+            }
+          };
+
+          trySendMessage(0);
+        };
 
         const initializeWebSocket = () => {
           if (ws) {
@@ -2608,31 +2634,6 @@ async function connectWebSocket() {
           }
 
           ws = new WebSocket("wss://ws.dream-singles.com/ws");
-
-          const sendMessage = (ws, message) => {
-            const maxRetries = 10;
-            const retryDelay = 500;
-
-            const trySendMessage = (retryCount) => {
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(message));
-              } else if (retryCount < maxRetries) {
-                setTimeout(() => {
-                  trySendMessage(retryCount + 1);
-                  console.log(
-                    `Retrying to send message after ${retryDelay} ms`
-                  );
-                }, retryDelay);
-              } else {
-                console.error(
-                  `Failed to send message after ${maxRetries} retries`
-                );
-                chrome.runtime.sendMessage({ type: "closeAndRetry" });
-              }
-            };
-
-            trySendMessage(0);
-          };
 
           ws.addEventListener("open", async () => {
             console.log("Connection established!");
@@ -2644,7 +2645,13 @@ async function connectWebSocket() {
               sendMessage(ws, {
                 type: "auth",
                 connection: "invite",
-                subscribe_to: ["auth-response", "chat-invites-response"],
+                subscribe_to: [
+                  "auth-response",
+                  "chat-invites-response",
+                  "chat-message",
+                  "chat-echo-message",
+                  "delete-invites-from",
+                ],
                 payload: token,
               });
             } catch (error) {
@@ -2670,9 +2677,18 @@ async function connectWebSocket() {
                 break;
               case "chat-invites-response":
                 let invites = data.payload;
+
+                invites.map((chatId) => {
+                  return handleNewChatMessage(
+                    chatId.user.id,
+                    autoReplyMessage,
+                    chatId.to
+                  );
+                });
+
                 let items = invites.map((invite) => ({
                   title: invite.user.displayname || "Unknown User",
-                  message: `ID: ${invite.user.id}, `,
+                  message: `ID: ${invite.user.id}`,
                 }));
                 console.log("Current chat invites:", invites);
                 let ttstextChat = `${userName}, You have chat invites from: ${invites
@@ -2689,6 +2705,7 @@ async function connectWebSocket() {
                   items: items,
                 });
                 break;
+
               default:
                 console.log("Received message:", data);
             }
@@ -2703,6 +2720,30 @@ async function connectWebSocket() {
           });
         };
 
+        const handleNewChatMessage = (userId, replyMessage, to) => {
+          send_chat_message(replyMessage, userId, to);
+        };
+
+        const send_chat_message = (message, to, rec) => {
+          let payload = {
+            type: "chat-message",
+            to: to,
+            payload: message,
+          };
+          sendMessage(ws, payload);
+
+          let deleteChatInvite = {
+            recipient: rec,
+            sender: to,
+            type: "delete-invites-from",
+          };
+          sendMessage(ws, deleteChatInvite);
+
+          console.log(
+            "sent to " + to + " deleted " + JSON.stringify(deleteChatInvite)
+          );
+        };
+
         initializeWebSocket();
 
         if (reconnectInterval) {
@@ -2710,11 +2751,10 @@ async function connectWebSocket() {
         }
         reconnectInterval = setInterval(() => {
           console.log("Reconnecting WebSocket...");
-          //initializeWebSocket(); //cause problms with name in a while
           chrome.runtime.sendMessage({ type: "closeAndRetry" });
         }, 30000);
       },
-      args: [userName],
+      args: [userName, autoReplyMessage],
     });
     console.log("WebSocket script executed");
   } catch (error) {
