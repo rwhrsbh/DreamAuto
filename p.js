@@ -12,12 +12,10 @@ const closeAutoMessage = document.getElementById("closeAutoMessage");
 const AutoMessage = document.getElementById("AutoMessage");
 const autoReplyIcon = document.getElementById("autoReplyIcon");
 
-// Add debug logging
 function debugLog(message) {
   console.log(`[DEBUG] ${message}`);
 }
 
-// Check stored message on load
 chrome.storage.local.get(["AutoMessageReply"], function (result) {
   debugLog(`Initial AutoMessageReply: ${result.AutoMessageReply}`);
   if (result.AutoMessageReply) {
