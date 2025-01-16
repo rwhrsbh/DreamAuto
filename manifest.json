@@ -24,27 +24,19 @@
   ],
   "host_permissions": [
     "https://www.dream-singles.com/*",
-    "wss://ws.dream-singles.com/ws"
+    "wss://ws.dream-singles.com/ws",
+    "https://dream-singles.com/members"
   ],
 
   "content_scripts": [
     {
       "matches": [
-        "https://extensionpay.com/*"
-
+        "https://extensionpay.com/*",
+        "https://www.dream-singles.com/*",
+        "https://dream-singles.com/members"
       ],
       "js": ["ExtPay.js"],
       "run_at": "document_start"
-    },{
-      "matches": [
-        "<all_urls>"
-
-      ],
-      "js": [
-        "sounds.js"
-      ],
-
-      "all_frames": true
     }
   ],
   "action": {
