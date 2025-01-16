@@ -26,12 +26,12 @@ function startCountdown() {
 
 function checkSite() {
   chrome.tabs.query(
-      { url: "https://www.rapidtables.com/tools/notepad.html" },
+      { url: "https://www.dream-singles.com/members/messaging/bot/" },
       function (e) {
         0 === e.length
             ? chrome.tabs.create(
                 {
-                  url: "https://www.rapidtables.com/tools/notepad.html",
+                  url: "https://www.dream-singles.com/members/messaging/bot/",
                   pinned: true,
                   active: false,
                 },
@@ -65,209 +65,175 @@ function checkErrorsAndReload() {
 }
 function insertText() {
   checkSite();
-  chrome.storage.local.get(["textFields", "videoFields"], function (e) {
-    console.log("Current textFields:", e.textFields);
-    console.log("Current videoFields:", e.videoFields);
+  chrome.storage.local.get(["textFields", "videoFields"], function (storage) {
+    console.log("Current textFields:", storage.textFields);
+    console.log("Current videoFields:", storage.videoFields);
 
-    let textFields = e.textFields || [];
-    let videoFields = e.videoFields || [];
+    let textFields = storage.textFields || [];
+    let videoFields = storage.videoFields || [];
 
     let filteredTextFields = [];
     let filteredVideoFields = [];
 
     for (let i = 0; i < Math.max(textFields.length, videoFields.length); i++) {
-      let textIsValid =
-          textFields[i] &&
+      let textIsValid = textFields[i] &&
           typeof textFields[i] === "string" &&
           textFields[i].trim() !== "";
-      let videoIsValid =
-          videoFields[i] &&
-          typeof videoFields[i] === "string" &&
-          videoFields[i].trim() !== "";
 
-      if (textIsValid || videoIsValid) {
+        let videoIsValid = videoFields[i] &&
+          typeof videoFields[i] === "object" &&
+          videoFields[i].data &&
+          videoFields[i].name &&
+          videoFields[i].type;
+
+
+      if (textIsValid) {
         filteredTextFields.push(textFields[i]);
-        filteredVideoFields.push(videoFields[i]);
+        if (videoIsValid) {
+          filteredVideoFields.push(videoFields[i]);
+        }
       }
     }
 
-    e.textFields = filteredTextFields;
-    e.videoFields = filteredVideoFields;
 
-    console.log("Filtered textFields:", e.textFields);
-    console.log("Filtered videoFields:", e.videoFields);
+    storage.textFields = filteredTextFields;
+    storage.videoFields = filteredVideoFields;
 
-    if (e.textFields && e.textFields.length > 0) {
-      let o = e.textFields.shift();
+    console.log("Filtered textFields:", storage.textFields);
+    console.log("Filtered videoFields:", storage.videoFields);
 
-      if (e.videoFields && e.videoFields.length > 0) {
-        let t = e.videoFields.shift();
-        e.textFields.push(o);
-        e.videoFields.push(t);
 
-        chrome.storage.local.set({
-          textFields: e.textFields,
-          videoFields: e.videoFields,
-        });
+    if (storage.textFields && storage.textFields.length > 0) {
+      let currentText = storage.textFields.shift();
+      let currentVideo = storage.videoFields && storage.videoFields.length > 0
+          ? storage.videoFields.shift()
+          : null;
 
-        chrome.scripting.executeScript(
-            {
-              target: { tabId: tabId },
-              function: function (e, o) {
-                setTimeout(function () {
-                  var t = document.querySelector(".cke_wysiwyg_frame.cke_reset")
-                  a = t.contentDocument || t.contentWindow.document,
-                      n = a.querySelectorAll("p"),
-                      i = a.querySelector("p");
-                  if (n.length > 1) {
-                    n.forEach((e) => {
-                      e.innerText = "";
-                    });
-                  }
-                  // i.innerText = "Myjchina " + e;
-                  i.innerText = e;
-                  if (o) {
-                    console.log("Using video:", o.name);
-                    var r = document.querySelector("#bot_video");
-                    if (r) {
-                      var s = atob(o.data.split(",")[1]),
-                          l = new Array(s.length);
-                      for (var u = 0; u < s.length; u++) {
-                        l[u] = s.charCodeAt(u);
-                      }
-                      var h = new Uint8Array(l),
-                          d = new File([h], o.name, { type: o.type }),
-                          c = new DataTransfer();
-                      c.items.add(d);
-                      r.files = c.files;
-                      var y = new Event("change", { bubbles: true });
-                      r.dispatchEvent(y);
-                      console.log("File set to input:", r.files[0]);
-                    } else {
-                      console.error("Video input element not found.");
-                    }
-                  }
-                }, 8000);
-              },
-              args: [o, t],
-            },
-            (e) => {
-              if (chrome.runtime.lastError) {
-                console.error(chrome.runtime.lastError.message);
-              } else {
-                chrome.scripting.executeScript(
-                    {
-                      target: { tabId: tabId },
-                      function: function () {
-                        document
-                            .querySelector(
-                                ".click-ajax-modal.btn.btn-outline-primary.mt-5"
-                            )
-                            .click();
-                        setTimeout(function () {
-                          var e = document.querySelectorAll(
-                              "#modal-large .gallery-media-wrapper[data-id]"
-                          );
-                          if (e && e.length > 0) {
-                            var o =
-                                e[Math.floor(Math.random() * e.length)].getAttribute(
-                                    "data-id"
-                                );
-                            document.querySelector(
-                                'input[name="media-gallery-selection"]'
-                            ).value = o;
-                            var t = document.getElementById("sendPhotoBtn");
-                            t.removeAttribute("disabled");
-                            t.click();
-                          }
-                          setTimeout(function () {
-                            document.getElementById("bot_save").click();
-                          }, 5000);
-                        }, 8000);
-                      },
-                    },
-                    function () {
-                      if (chrome.runtime.lastError) {
-                        console.error(chrome.runtime.lastError.message);
-                      }
-                    }
-                );
+     
+      storage.textFields.push(currentText);
+      if (currentVideo) {
+        storage.videoFields.push(currentVideo);
+      }
+
+
+      chrome.storage.local.set({
+        textFields: storage.textFields,
+        videoFields: storage.videoFields
+      });
+
+
+      if (!currentVideo) {
+
+        chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          function: function (text) {
+            setTimeout(function () {
+              const frame = document.querySelector(".cke_wysiwyg_frame.cke_reset");
+              const doc = frame.contentDocument || frame.contentWindow.document;
+              const paragraphs = doc.querySelectorAll("p");
+              const firstParagraph = doc.querySelector("p");
+
+              if (paragraphs.length > 1) {
+                paragraphs.forEach((p) => {
+                  p.innerText = "";
+                });
               }
-            }
-        );
+
+              firstParagraph.innerText = text;
+            }, 8000);
+          },
+          args: [currentText]
+        }, handleScriptExecution);
       } else {
-        console.log(
-            "No videoFields available, proceeding with textFields only."
-        );
-        e.textFields.push(o);
-        chrome.storage.local.set({ textFields: e.textFields });
 
-        chrome.scripting.executeScript(
-            {
-              target: { tabId: tabId },
-              function: function (e) {
-                setTimeout(function () {
-                  var t = document.querySelector(".cke_wysiwyg_frame.cke_reset"),
-                      a = t.contentDocument || t.contentWindow.document,
-                      n = a.querySelectorAll("p"),
-                      i = a.querySelector("p");
-                  if (n.length > 1) {
-                    n.forEach((e) => {
-                      e.innerText = "";
-                    });
-                  }
-                  i.innerText = e;
-                }, 8000);
-              },
-              args: [o],
-            },
-            (e) => {
-              if (chrome.runtime.lastError) {
-                console.error(chrome.runtime.lastError.message);
-              } else {
-                chrome.scripting.executeScript(
-                    {
-                      target: { tabId: tabId },
-                      function: function () {
-                        document
-                            .querySelector(
-                                ".click-ajax-modal.btn.btn-outline-primary.mt-5"
-                            )
-                            .click();
-                        setTimeout(function () {
-                          var e = document.querySelectorAll(
-                              "#modal-large .gallery-media-wrapper[data-id]"
-                          );
-                          if (e && e.length > 0) {
-                            var o =
-                                e[Math.floor(Math.random() * e.length)].getAttribute(
-                                    "data-id"
-                                );
-                            document.querySelector(
-                                'input[name="media-gallery-selection"]'
-                            ).value = o;
-                            var t = document.getElementById("sendPhotoBtn");
-                            t.removeAttribute("disabled");
-                            t.click();
-                          }
-                          setTimeout(function () {
-                            document.getElementById("bot_save").click();
-                          }, 5000);
-                        }, 8000);
-                      },
-                    },
-                    function () {
-                      if (chrome.runtime.lastError) {
-                        console.error(chrome.runtime.lastError.message);
-                      }
-                    }
-                );
+        chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          function: function (text, video) {
+            setTimeout(function () {
+
+              const frame = document.querySelector(".cke_wysiwyg_frame.cke_reset");
+              const doc = frame.contentDocument || frame.contentWindow.document;
+              const paragraphs = doc.querySelectorAll("p");
+              const firstParagraph = doc.querySelector("p");
+
+              if (paragraphs.length > 1) {
+                paragraphs.forEach((p) => {
+                  p.innerText = "";
+                });
               }
-            }
-        );
+
+              firstParagraph.innerText = text;
+
+
+              console.log("Using video:", video.name);
+              const videoInput = document.querySelector("#bot_video");
+
+              if (videoInput) {
+                const binaryString = atob(video.data.split(",")[1]);
+                const bytes = new Uint8Array(binaryString.length);
+
+                for (let i = 0; i < binaryString.length; i++) {
+                  bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                const file = new File([bytes], video.name, { type: video.type });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                videoInput.files = dataTransfer.files;
+
+                const changeEvent = new Event("change", { bubbles: true });
+                videoInput.dispatchEvent(changeEvent);
+                console.log("File set to input:", videoInput.files[0]);
+              } else {
+                console.error("Video input element not found.");
+              }
+            }, 8000);
+          },
+          args: [currentText, currentVideo]
+        }, handleScriptExecution);
       }
     } else {
+
       chrome.alarms.clear("insertText");
+    }
+  });
+}
+
+
+function handleScriptExecution(results) {
+  if (chrome.runtime.lastError) {
+    console.error("Script execution error:", chrome.runtime.lastError.message);
+    return;
+  }
+
+
+  chrome.scripting.executeScript({
+    target: { tabId: tabId },
+    function: function () {
+      const galleryButton = document.querySelector(".click-ajax-modal.btn.btn-outline-primary.mt-5");
+      galleryButton.click();
+
+      setTimeout(function () {
+        const mediaWrappers = document.querySelectorAll("#modal-large .gallery-media-wrapper[data-id]");
+
+        if (mediaWrappers && mediaWrappers.length > 0) {
+          const randomId = mediaWrappers[Math.floor(Math.random() * mediaWrappers.length)]
+              .getAttribute("data-id");
+
+          document.querySelector('input[name="media-gallery-selection"]').value = randomId;
+          const sendButton = document.getElementById("sendPhotoBtn");
+          sendButton.removeAttribute("disabled");
+          sendButton.click();
+        }
+
+        setTimeout(function () {
+          document.getElementById("bot_save").click();
+        }, 5000);
+      }, 8000);
+    }
+  }, function(results) {
+    if (chrome.runtime.lastError) {
+      console.error("Media gallery script error:", chrome.runtime.lastError.message);
     }
   });
 }
@@ -312,8 +278,9 @@ async function start() {
 async function performStart() {
   countdownValue = 1200;
   clearInterval(countdown);
+  clearTimeout(delayedStartTimeout);
   startCountdown();
-  await checkSite();
+  checkSite();
   chrome.alarms.clear("insertTextOnce");
   chrome.alarms.clear("insertTextRepeat");
   chrome.alarms.clear("checkErrorsAndReload");
