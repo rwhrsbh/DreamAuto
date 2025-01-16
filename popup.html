@@ -557,6 +557,86 @@ href=https://fonts.gstatic.com rel=preconnect crossorigin><link
   .hss {
     color: rgb(0, 0, 0);
   }
+  #enableDelayedStart {
+    background: none;
+    border: none;
+    cursor: pointer;
+    position: fixed;
+    left: -5px;
+    bottom: 0px;
+  }
+
+  #enableDelayedStart:hover {
+    opacity: 0.8;
+  }
+
+  #enableDelayedStart.active #delayedStartIcon {
+    fill: #0ff;
+  }
+
+  #enableDelayedStart.disabled #delayedStartIcon {
+    fill: #ff0000;
+  }
+
+  .modalDelayedStart {
+    display: none;
+    position: fixed;
+    z-index: 1;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: rgba(0, 0, 0, 0.4);
+  }
+
+  .modalDelayedStart-content {
+    background-color: #fefefe;
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid #888;
+    width: 80%;
+    max-width: 500px;
+    animation: modalOpen 0.3s ease-out;
+  }
+
+  .time-inputs {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin: 20px 0;
+  }
+
+  .time-inputs input {
+    width: 100px;
+    padding: 10px;
+    text-align: center;
+  }
+
+  .selected-time {
+    text-align: center;
+    margin: 15px 0;
+    font-weight: bold;
+  }
+
+  #saveDelayedStart,
+  #closeDelayedStartModal,
+  #clearDelayedStart {
+    padding: 10px 20px;
+    margin: 10px 5px;
+    cursor: pointer;
+  }
+
+  #clearDelayedStart {
+    background-color: #f44336;
+    color: white;
+    border: none;
+  }
+
+  #clearDelayedStart:hover {
+    background-color: #d32f2f;
+  }
 </style>
 <div class="modal1" id="myModal1">
   <div class="modal1-content">
@@ -1458,6 +1538,29 @@ href=https://fonts.gstatic.com rel=preconnect crossorigin><link
 >
   Time before the next letter: 00:00
 </p>
+
+<button id="enableDelayedStart" class="icon-button" title="Set Delayed Start">
+  <svg id="delayedStartIcon" width="18" height="18" viewBox="0 0 24 24" fill="#ff0000">
+    <path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8z"/>
+    <path d="M13 7h-2v5.414l3.293 3.293 1.414-1.414L13 11.586z"/>
+  </svg>
+</button>
+
+<div id="modalDelayedStart" class="modalDelayedStart">
+  <div class="modalDelayedStart-content">
+    <h2>Delayed Start Settings</h2>
+    <p class="hss">Select the time to start the extension</p>
+    <div class="time-inputs">
+      <input type="number" id="startHours" min="0" max="23" placeholder="Hours (0-23)" />
+      <span>:</span>
+      <input type="number" id="startMinutes" min="0" max="59" placeholder="Minutes (0-59)" />
+    </div>
+    <div class="selected-time">Selected start time: <span id="selectedTimeDisplay">Not set</span></div>
+    <button id="saveDelayedStart">Save</button>
+    <button id="closeDelayedStartModal">Close</button>
+    <button id="clearDelayedStart">Clear Time</button>
+  </div>
+</div>
 <script src="s.js"></script>
 <script src="v.js"></script>
 <script src="l.js"></script>
