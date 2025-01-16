@@ -37,7 +37,7 @@ Dream Auto is a feature-rich extension for Google Chrome designed to optimize yo
 
 If you want to install the extension manually (for example, for testing or development):
 
-1. Download the latest version of the extension from [GitHub Releases](https://github.com/gupi1337-7/dreamauto/releases).
+1. Download the latest version of the extension from [GitHub Releases](https://github.com/rwhrsbh/DreamAuto/releases).
 2. Unzip the downloaded file.
 3. Open Google Chrome and go to the `chrome://extensions/` page.
 4. Turn on `Developer Mode` in the top right corner.
@@ -85,7 +85,7 @@ This project is licensed under [MIT License](LICENSE).
 
 ## 📞 Support
 
-If you have any problems or questions, please create a [issue](https://github.com/gupi1337-7/dreamauto/issues) in this repository.
+If you have any problems or questions, please create a [issue](https://github.com/rwhrsbh/DreamAuto/issues) in this repository.
 
 ---
 
