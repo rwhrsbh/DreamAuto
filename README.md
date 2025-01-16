@@ -54,17 +54,17 @@ After installing the extension, you will be able to:
 
 ## 🔄 Latest updates
 
+## Version: 1.0.8.1
+
+- Start delay for letters.
+
 ## Version: 1.0.8.0
 
 - Added auto reply.
+
 - Clicking on a chat notification opens the chat tabs for each user.
+
 - Clicking on an email notification opens the inbox tab.
-
-### Version: 1.0.7.2
-
-- Changed TTS sending logic. It should now take the given voice first, if it is not found then any US or UK Google, if they are not found then any possible voice.
-
-- New emails: Changed the logic. One more element will now be checked.
 
 [Full list of changes](CHANGELOG.md)
 
