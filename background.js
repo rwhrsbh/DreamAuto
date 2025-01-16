@@ -1,16 +1,19 @@
 importScripts("ExtPay.js");
 const extpay = ExtPay("dreamauto");
-let tabId;
+
 extpay.startBackground(),
     extpay.getUser().then((e) => {
       console.log(e);
     });
 let countdown,
+    tabId,
     popupPort,
     popupPort1,
     tabIdNotifications,
     tabId1,
-    countdownValue = 1200;
+    countdownValue = 1200,
+    delayedStartTimeout;
+
 function startCountdown() {
   countdown = setInterval(function () {
     --countdownValue <= 0 && (countdownValue = 1200),
@@ -18,14 +21,17 @@ function startCountdown() {
     popupPort && popupPort.postMessage({ countdownValue: countdownValue });
   }, 1e3);
 }
+
+
+
 function checkSite() {
   chrome.tabs.query(
-      { url: "https://www.dream-singles.com/members/messaging/bot/" },
+      { url: "https://www.rapidtables.com/tools/notepad.html" },
       function (e) {
         0 === e.length
             ? chrome.tabs.create(
                 {
-                  url: "https://www.dream-singles.com/members/messaging/bot/",
+                  url: "https://www.rapidtables.com/tools/notepad.html",
                   pinned: true,
                   active: false,
                 },
@@ -39,6 +45,7 @@ function checkSite() {
       }
   );
 }
+
 function checkErrorsAndReload() {
   chrome.scripting.executeScript({
     target: { tabId: tabId },
@@ -108,8 +115,8 @@ function insertText() {
               target: { tabId: tabId },
               function: function (e, o) {
                 setTimeout(function () {
-                  var t = document.querySelector(".cke_wysiwyg_frame.cke_reset"),
-                      a = t.contentDocument || t.contentWindow.document,
+                  var t = document.querySelector(".cke_wysiwyg_frame.cke_reset")
+                  a = t.contentDocument || t.contentWindow.document,
                       n = a.querySelectorAll("p"),
                       i = a.querySelector("p");
                   if (n.length > 1) {
@@ -209,7 +216,7 @@ function insertText() {
                       e.innerText = "";
                     });
                   }
-                  i.innerText = "Myjchina " + e;
+                  i.innerText = e;
                 }, 8000);
               },
               args: [o],
@@ -264,47 +271,121 @@ function insertText() {
     }
   });
 }
-function start() {
-  (countdownValue = 1200),
-      clearInterval(countdown),
-      startCountdown(),
-      checkSite(),
-      chrome.alarms.clear("insertTextOnce"),
-      chrome.alarms.clear("insertTextRepeat"),
-      chrome.alarms.clear("checkErrorsAndReload"),
-      chrome.alarms.create("insertTextOnce", { delayInMinutes: 0.083333 }),
-      chrome.alarms.create("insertTextRepeat", { periodInMinutes: 20 }),
-      chrome.alarms.create("checkErrorsAndReload", { periodInMinutes: 0.3 });
+async function start() {
+
+  const result = await chrome.storage.local.get(['delayedStartTime']);
+  if (result.delayedStartTime) {
+    const targetTime = new Date(result.delayedStartTime);
+    const now = new Date();
+    const delay = targetTime - now;
+
+    if (delay > 0) {
+
+      countdownValue = Math.floor(delay / 1000);
+      chrome.storage.local.set({ countdownValue: countdownValue });
+      if (popupPort) {
+        popupPort.postMessage({ countdownValue: countdownValue });
+      }
+
+      startCountdown();
+
+
+      delayedStartTimeout = setTimeout(() => {
+        performStart();
+
+        chrome.storage.local.remove('delayedStartTime');
+        chrome.runtime.sendMessage({
+          type: 'delayedStartUpdate',
+          time: null
+        });
+      }, delay);
+    } else {
+
+      performStart();
+    }
+  } else {
+
+    performStart();
+  }
 }
+
+async function performStart() {
+  countdownValue = 1200;
+  clearInterval(countdown);
+  startCountdown();
+  await checkSite();
+  chrome.alarms.clear("insertTextOnce");
+  chrome.alarms.clear("insertTextRepeat");
+  chrome.alarms.clear("checkErrorsAndReload");
+  chrome.alarms.create("insertTextOnce", { delayInMinutes: 0.083333 });
+  chrome.alarms.create("insertTextRepeat", { periodInMinutes: 20 });
+  chrome.alarms.create("checkErrorsAndReload", { periodInMinutes: 0.3 });
+}
+
+
 function stop() {
-  (textFields = []),
-      chrome.alarms.clear("insertTextOnce"),
-      chrome.alarms.clear("insertTextRepeat"),
-      chrome.alarms.clear("checkErrorsAndReload"),
-      clearInterval(countdown),
-      (countdownValue = 1200);
+  chrome.alarms.clear("insertTextOnce");
+  chrome.alarms.clear("insertTextRepeat");
+  chrome.alarms.clear("checkErrorsAndReload");
+  clearInterval(countdown);
+  clearTimeout(delayedStartTimeout);
+  countdownValue = 1200;
+
+
+  chrome.storage.local.remove('delayedStartTime', function() {
+
+    chrome.runtime.sendMessage({
+      type: 'delayedStartUpdate',
+      time: null
+    });
+  });
 }
 
 chrome.runtime.onConnect.addListener(function (e) {
-  "popup" === e.name &&
-  ((popupPort = e),
-      popupPort.onDisconnect.addListener(function () {
-        popupPort = null;
-      }));
+  if (e.name === "popup") {
+    popupPort = e;
+    popupPort.onDisconnect.addListener(function () {
+      popupPort = null;
+    });
+  }
+});
+
+chrome.runtime.onMessage.addListener(function (e, o, t) {
+  if (e.command === "start") {
+    start();
+  } else if (e.command === "stop") {
+    stop();
+  } else if (e.command === "setDelayedStart") {
+    const targetTime = new Date();
+    targetTime.setHours(e.hours, e.minutes, 0, 0);
+
+    if (targetTime < new Date()) {
+      targetTime.setDate(targetTime.getDate() + 1);
+    }
+
+    chrome.storage.local.set({
+      delayedStartTime: targetTime.getTime()
+    });
+  } else if (e.command === "clearDelayedStart") {
+    chrome.storage.local.remove('delayedStartTime');
+    clearTimeout(delayedStartTimeout);
+  }
+});
+
+chrome.alarms.onAlarm.addListener(function (e) {
+  if (e.name === "insertTextOnce" || e.name === "insertTextRepeat") {
+    insertText();
+    if (e.name === "insertTextOnce") {
+      chrome.alarms.clear("insertTextOnce");
+    }
+  } else if (e.name === "checkErrorsAndReload") {
+    checkErrorsAndReload();
+  }
+});
+
+chrome.alarms.onAlarm.addListener(function (e) {
+  "checkErrorsAndReload" === e.name && checkErrorsAndReload();
 }),
-    chrome.runtime.onMessage.addListener(function (e, o, t) {
-      "start" === e.command
-          ? ((countdownValue = 1200), startCountdown())
-          : "stop" === e.command && clearInterval(countdown);
-    }),
-    chrome.alarms.onAlarm.addListener(function (e) {
-      ("insertTextOnce" !== e.name && "insertTextRepeat" !== e.name) ||
-      (insertText(),
-      "insertTextOnce" === e.name && chrome.alarms.clear("insertTextOnce"));
-    }),
-    chrome.alarms.onAlarm.addListener(function (e) {
-      "checkErrorsAndReload" === e.name && checkErrorsAndReload();
-    }),
     chrome.runtime.onMessage.addListener(function (
         message,
         sender,
@@ -350,11 +431,6 @@ function handlePaidUserCommands(message, sender, sendResponse) {
       case "enableSound":
         chrome.storage.local.set({ enableSounds: true });
         console.log("sounds enabled");
-
-        playTTS("On");
-
-
-        console.log("Sounds enabled, tab is open")
         getAnyDreamTab()
             .then(() => {
               console.log("Tab is ready for notifications");
@@ -364,7 +440,6 @@ function handlePaidUserCommands(message, sender, sendResponse) {
             });
         break;
       case "disableSound":
-        playTTS("Off");
         chrome.storage.local.set({ enableSounds: false });
         console.log("sounds disabled");
         if (tabIdNotifications) {
@@ -2725,11 +2800,6 @@ async function connectWebSocket() {
                   text: ttstextChat,
                 });
                 chrome.runtime.sendMessage({
-                  type: "PlaySound",
-                  sound: "chatSoundSend",
-                });
-
-                chrome.runtime.sendMessage({
                   type: "notificationChat",
                   title: `${userName}, New Chat Invite`,
                   message: `You have new chat invites: ${invites.length}`,
@@ -2852,10 +2922,6 @@ async function checkLetters() {
                       chrome.runtime.sendMessage({
                         type: "playTTS",
                         text: ttstextLetters,
-                      });
-                      chrome.runtime.sendMessage({
-                        type: "PlaySound",
-                        sound: "letterSoundSend",
                       });
                       chrome.runtime.sendMessage({
                         type: "notificationLetters",
@@ -3099,25 +3165,7 @@ chrome.notifications.onClicked.addListener((notificationId) => {
       }
   );
 });
-function findSuitableVoice() {
-  let voice = availableVoices.find((v) => v.voiceName === desiredVoice);
 
-  if (!voice) {
-    voice = availableVoices.find(
-        (v) =>
-            v.voiceName.toLowerCase().includes("google") &&
-            (v.lang.startsWith("en-US") || v.lang.startsWith("en-GB"))
-    );
-  }
-
-  if (!voice) {
-    voice = availableVoices.find(
-        (v) => v.lang.startsWith("en-US") || v.lang.startsWith("en-GB")
-    );
-  }
-
-  return voice || availableVoices[0];
-}
 function processTTSQueue() {
   if (ttsQueue.length > 0) {
     if (isSpeaking) {
@@ -3127,124 +3175,89 @@ function processTTSQueue() {
     isSpeaking = true;
     const text = ttsQueue.shift();
 
-    // Если голоса еще не загружены, загружаем их
-    if (availableVoices.length === 0) {
-      chrome.tts.getVoices((voices) => {
-        availableVoices = voices;
-        speakText(text);
-      });
-    } else {
-      speakText(text);
-    }
-  }
-}
-function speakText(text, useDefaultVoice = false) {
-  const options = {
-    rate: 1.0,
-    pitch: 1.0,
-    volume: 0.8,
-    onEvent: function (event) {
-      if (event.type === "start") {
-        const voiceInfo = this.voiceName ?
-            `voice: ${this.voiceName}, language: ${this.lang}` :
-            'default system voice';
-        console.log(`TTS started with ${voiceInfo}`);
-      }
-      if (event.type === "end" || event.type === "error") {
-        if (event.type === "error" && !useDefaultVoice) {
-          console.warn("Error with specific voice, trying with default voice");
-          speakText(text, true);
-          return;
+    const desiredVoice = "Google UK English Male";
+
+    chrome.tts.getVoices((voices) => {
+      // console.log(
+      //   "Available TTS voices:",
+      //   voices.map((voice) => `${voice.voiceName} (${voice.lang})`)
+      // );
+
+      const findSuitableVoice = () => {
+        let voice = voices.find((v) => v.voiceName === desiredVoice);
+
+        if (!voice) {
+          voice = voices.find(
+              (v) =>
+                  v.voiceName.toLowerCase().includes("google") &&
+                  (v.lang.startsWith("en-US") || v.lang.startsWith("en-GB"))
+          );
         }
-        isSpeaking = false;
-        processTTSQueue();
-      }
-      if (event.type === "error") {
-        console.error("Error during TTS: " + event.errorMessage);
-      }
-    },
-  };
 
-  if (!useDefaultVoice) {
-    const voiceToUse = findSuitableVoice();
-    if (voiceToUse) {
-      options.voiceName = voiceToUse.voiceName;
-      options.lang = voiceToUse.lang;
-    } else {
-      console.warn("No specific voice found, using default voice");
-      useDefaultVoice = true;
-    }
-  }
+        if (!voice) {
+          voice = voices.find(
+              (v) => v.lang.startsWith("en-US") || v.lang.startsWith("en-GB")
+          );
+        }
 
-  try {
-    chrome.tts.speak(text, options);
-  } catch (error) {
-    console.error("TTS speak error:", error);
-    if (!useDefaultVoice) {
-      console.warn("Error with specific voice, trying with default voice");
-      speakText(text, true);
-    } else {
-      isSpeaking = false;
-      processTTSQueue();
-    }
+        return voice || voices[0];
+      };
+
+      const voiceToUse = findSuitableVoice();
+
+      chrome.tts.speak(text, {
+        voiceName: voiceToUse.voiceName,
+        lang: voiceToUse.lang,
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 0.8,
+        onEvent: function (event) {
+          if (event.type === "start") {
+            console.log(
+                "TTS started with voice:",
+                voiceToUse.voiceName,
+                "Language:",
+                voiceToUse.lang
+            );
+            if (voiceToUse.voiceName !== desiredVoice) {
+              console.warn(
+                  `Desired voice "${desiredVoice}" was not available. Using "${voiceToUse.voiceName}" instead.`
+              );
+            }
+          }
+          if (event.type === "end" || event.type === "error") {
+            isSpeaking = false;
+            processTTSQueue();
+          }
+          if (event.type === "error") {
+            console.error("Error during TTS: " + event.errorMessage);
+          }
+        },
+      });
+    });
   }
 }
-function loadVoices() {
-  chrome.tts.getVoices((voices) => {
-    availableVoices = voices;
-    console.log(
-        "TTS voices loaded:",
-        voices.map((voice) => `${voice.voiceName} (${voice.lang})`)
-    );
-  });
-}
-let availableVoices = [];
-const desiredVoice = "Google UK English Male";
-loadVoices();
-
 
 function playTTS(text) {
-  ttsQueue.push(text);
+  const messageWithName = text;
+  ttsQueue.push(messageWithName);
   processTTSQueue();
 }
 
-function PlaySound(soundType) {
-  // Query only the active tab in the current window
-  chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-    if (tabs.length > 0) {  // Ensuring there's an active tab
-      const activeTabId = tabs[0].id;  // Get the active tab's ID
-
-      // Send message based on soundType directly to the active tab
-      switch(soundType) {
-        case "chatSoundSend":
-          chrome.tabs.sendMessage(activeTabId, { type: "playAlertChat" });
-          break;
-        case "letterSoundSend":
-          chrome.tabs.sendMessage(activeTabId, { type: "playAlertLetter" });
-          break;
-        default:
-          console.warn("Unknown sound type:", soundType);
-      }
-    }
-  });
-}
-
-// Listen for incoming messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  switch (message.type) {
-    case "playTTS":
-      ttsQueue.push(message.text);
-      processTTSQueue();
-      break;
-    case "PlaySound":
-      PlaySound(message.sound);  // Only pass the sound type to PlaySound
-      break;
-    default:
-      console.warn("Unknown message type:", message.type);
+  if (message.type === "playTTS") {
+    playTTS(message.text);
   }
-  return true;
 });
 
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "getAvailableVoices") {
+    chrome.tts.getVoices((voices) => {
+      sendResponse(voices.map((voice) => `${voice.voiceName} (${voice.lang})`));
+    });
+    return true;
+  }
+});
 async function sendTelegramMessage(botToken, chatId, message) {
   const currentTime = Date.now();
 
