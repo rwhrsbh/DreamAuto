@@ -2736,18 +2736,22 @@ async function connectWebSocket() {
                 }
                 break;
               case "chat-invites-response":
-                let invites = data.payload;
+                let invites = data.payload || [];
+                console.log("Current chat invites:", invites);
+
+                if (invites.length === 0) {
+                  console.log("No chat invites available");
+                  break;
+                }
+
                 if (AutoMessageReply && AutoMessageReply.length > 0) {
-                  const randomMessage =
-                      AutoMessageReply[
-                          Math.floor(Math.random() * AutoMessageReply.length)
-                          ];
+                  const randomMessage = AutoMessageReply[Math.floor(Math.random() * AutoMessageReply.length)];
                   console.log(randomMessage + "is going to be sent");
                   invites.map((chatId) => {
                     return handleNewChatMessage(
-                        chatId.user.id,
-                        randomMessage,
-                        chatId.to
+                      chatId.user.id,
+                      randomMessage,
+                      chatId.to
                     );
                   });
                 } else {
@@ -2756,12 +2760,11 @@ async function connectWebSocket() {
 
                 let items = invites.map((invite) => ({
                   title: invite.user.displayname || "Unknown User",
-                  message: `ID: ${invite.user.id}`,
+                  message: `ID: ${invite.user.id}`
                 }));
-                console.log("Current chat invites:", invites);
                 let ttstextChat = `${userName}, You have chat invites from: ${invites
-                    .map((invite) => invite.user.displayname || "Unknown User")
-                    .join(", & ")}`;
+                  .map((invite) => invite.user.displayname || "Unknown User")
+                  .join(", & ")}`;
                 chrome.runtime.sendMessage({
                   type: "playTTS",
                   text: ttstextChat,

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "DreamAuto",
   "description": "All-in-one software for website interaction on Dream-Singles.com",
-  "version": "1.0.8.1",
+  "version": "1.0.9.0",
   "icons": {
     "16": "Images/icon.png",
     "32": "Images/icon.png",
@@ -37,6 +37,14 @@
       ],
       "js": ["ExtPay.js"],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://www.dream-singles.com/*"
+      ],
+      "js": ["ProfileInfo.js"],
+      "css": [],
+      "run_at": "document_end"
     }
   ],
   "action": {
