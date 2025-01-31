@@ -54,17 +54,19 @@ After installing the extension, you will be able to:
 
 ## 🔄 Latest updates
 
+## Version: 1.0.9.0
+
+- Added User Info feature:
+- Track users' credits and minutes
+- Monitor blocked status
+- View user countries and plans
+- Quick access to chat and messages
+- Real-time data updates.
+
 ## Version: 1.0.8.1
 
 - Start delay for letters.
 
-## Version: 1.0.8.0
-
-- Added auto reply.
-
-- Clicking on a chat notification opens the chat tabs for each user.
-
-- Clicking on an email notification opens the inbox tab.
 
 [Full list of changes](CHANGELOG.md)
 
