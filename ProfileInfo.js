@@ -1000,55 +1000,62 @@ function checkInitialDataComplete() {
 };
 
 // Remove subscribeToAllCollectedIds function as it's no longer needed
-function initializeWebSocket() {
-    console.log('Initializing WebSocket connection...');
-    if (ws) {
-        console.log('Closing existing WebSocket connection');
-        ws.close();
-    }
-
-    ws = new WebSocket("wss://ws.dream-singles.com/ws");
-    console.log('WebSocket instance created');
-
-    ws.addEventListener("open", async () => {
-        console.log("WebSocket connection established!");
-        try {
-            console.log('Fetching JWT token...');
-            let response = await fetch("/members/jwtToken");
-            if (!response.ok) {
-                console.error(`JWT token fetch failed with status: ${response.status}`);
-                throw new Error(`HTTP error! status: ${response.status}`);
+        function initializeWebSocket() {
+            console.log('Initializing WebSocket connection...');
+            if (ws) {
+                console.log('Closing existing WebSocket connection');
+                ws.close();
             }
-            let token = await response.text();
-            console.log('JWT token received successfully');
 
-            // Reset initial state
-            collectedIds.clear();
-            subscribedIds.clear();
-            initialDataReceived = {
-                contacts: false,
-                favorites: false,
-                onlinePages: new Set(),
-                onlineFinished: false
-            };
+            ws = new WebSocket("wss://ws.dream-singles.com/ws");
+            console.log('WebSocket instance created');
 
-            console.log('Sending authentication request...');
-            sendMessage(ws, {
-                type: "auth",
-                connection: "invite",
-                subscribe_to: [
-                    "auth-response",
-                    "presence-change",
-                    "user-contacts-response",
-                    "men-online-response",
-                    "favorites-response"
-                ],
-                payload: token,
+            ws.addEventListener("open", async () => {
+                console.log("WebSocket connection established!");
+                try {
+                    console.log('Fetching JWT token...');
+                    let response = await fetch("/members/jwtToken", {
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Accept': 'application/json'
+                        },
+                        credentials: 'same-origin'  // Добавили эту строку
+                    });
+
+                    if (!response.ok) {
+                        console.error(`JWT token fetch failed with status: ${response.status}`);
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    let token = await response.text();
+                    console.log('JWT token received successfully');
+
+                    // Reset initial state
+                    collectedIds.clear();
+                    subscribedIds.clear();
+                    initialDataReceived = {
+                        contacts: false,
+                        favorites: false,
+                        onlinePages: new Set(),
+                        onlineFinished: false
+                    };
+
+                    console.log('Sending authentication request...');
+                    sendMessage(ws, {
+                        type: "auth",
+                        connection: "invite",
+                        subscribe_to: [
+                            "auth-response",
+                            "presence-change",
+                            "user-contacts-response",
+                            "men-online-response",
+                            "favorites-response"
+                        ],
+                        payload: token,
+                    });
+                } catch (error) {
+                    console.error("Error during WebSocket initialization:", error);
+                }
             });
-        } catch (error) {
-            console.error("Error during WebSocket initialization:", error);
-        }
-    });
 
     ws.addEventListener("message", (event) => {
         let data = JSON.parse(event.data);
