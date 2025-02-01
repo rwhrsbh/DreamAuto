@@ -295,7 +295,11 @@ function showAllStoredData() {
                 
                 userDiv.innerHTML = `
                     <div>
+                    
                         <p style="margin: 8px 0; font-size: 14px;">
+                        ${data?.photo ? `
+                    <img src="${data.photo}" alt="Profile" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover; cursor: pointer;" onclick="window.open('https://www.dream-singles.com/${userId}.html', '_blank')">
+                ` : ''}
                             <strong style="cursor: pointer; color: ${isBlocked ? '#ef4444' : '#4f46e5'};" onclick="window.open('https://www.dream-singles.com/${userId}.html', '_blank')">${data.displayname || 'Unknown'}</strong> 
                             (<span style="cursor: pointer; color: ${isBlocked ? '#ef4444' : '#4f46e5'};" onclick="window.open('https://www.dream-singles.com/${userId}.html', '_blank')">ID: ${userId}</span>)
                             ${isBlocked ? '<span style="color: #ef4444; margin-left: 5px;">(Blocked)</span>' : ''}
@@ -774,7 +778,6 @@ const showUserInfo = async (userId) => {
                 console.log('Adding user to subscription:', userId);
                 
                 // Add loading spinner
-                const originalContent = addToSubscriptionBtn.innerHTML;
                 addToSubscriptionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
                 addToSubscriptionBtn.disabled = true;
                 
@@ -806,53 +809,6 @@ const showUserInfo = async (userId) => {
             };
         }
     });
-};
-
-const renderUserList = async (users) => {
-    const userListDiv = content.querySelector('#user-list');
-    const userElements = await Promise.all(users.map(async ([userId, data]) => {
-        const messageUrl = await getMessageUrl(userId);
-        return `
-            <div style="border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <p style="margin: 8px 0; font-size: 14px;">
-                        <strong>${data.displayname || 'Unknown'}</strong> (ID: ${userId})
-                    </p>
-                    <p style="margin: 8px 0; font-size: 14px;">
-                        <strong>Credits:</strong> ${data.credits || 0}
-                    </p>
-                    <p style="margin: 8px 0; font-size: 14px;">
-                        <strong>Minutes:</strong> ${data.minutes || 0}
-                    </p>
-                    <p style="margin: 8px 0; font-size: 14px;">
-                        <strong>Last Update:</strong> ${new Date(data.lastUpdate).toLocaleString()}
-                    </p>
-                </div>
-                <div style="display: flex; gap: 10px;">
-                    <a href="https://www.dream-singles.com/members/chat?pid=${userId}" target="_blank" style="
-                        background: #4f46e5;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        font-size: 14px;
-                        text-decoration: none;
-                    ">Open Chat</a>
-                    <button data-user-id="${userId}" class="message-button" style="
-                        background: #22c55e;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        font-size: 14px;
-                    ">Send Message</button>
-                </div>
-            </div>
-        `;
-    }));
-    userListDiv.innerHTML = userElements.join('');
 };
 
 
@@ -1004,34 +960,6 @@ function checkAndRetryRequests() {
     });
 };
 
-const subscribeToAllCollectedIds = () => {
-    if (collectedIds.size === 0) return;
-
-    console.log(`Processing ${collectedIds.size} IDs for subscription`);
-
-    // Filter out IDs that are already subscribed
-    const newIds = Array.from(collectedIds).filter(id => !subscribedIds.has(id));
-
-    if (newIds.length === 0) {
-        console.log('No new IDs to subscribe to');
-        collectedIds.clear();
-        return;
-    }
-
-    console.log(`Found ${newIds.length} new unique IDs to subscribe to`);
-    const sortedIds = newIds.sort((a, b) => a - b);
-
-    // Send all IDs in one chunk
-    sendMessage(ws, {
-        type: "presence-subscribe",
-        payload: sortedIds
-    });
-    console.log(`Subscribed to ${sortedIds.length} new IDs in one batch`);
-
-    // Add all new IDs to subscribedIds
-    sortedIds.forEach(id => subscribedIds.add(id));
-    collectedIds.clear();
-};
 
 function checkInitialDataComplete() {
     const isComplete = initialDataReceived.contacts &&
