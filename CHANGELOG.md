@@ -2,6 +2,16 @@
 
 All significant changes to the Dream Auto project will be documented in this file.
 
+## Version: [1.0.9.1] - 2025-02-08
+
+### Fixed
+
+- Fixed bugs with token page after login
+
+### Added
+
+- Added a limit on the number of ids for subscription. To avoid socket overload issues. (Should not affect user experience)
+
 ## Version: [1.0.9.0] - 2025-01-31
 
 - Added User Info feature:
