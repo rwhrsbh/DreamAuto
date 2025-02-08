@@ -54,6 +54,11 @@ After installing the extension, you will be able to:
 
 ## 🔄 Latest updates
 
+## Version: 1.0.9.1
+
+- Fixed bugs with token page after login
+- Added a limit on the number of ids for subscription. To avoid socket overload issues. (Should not affect user experience)
+  
 ## Version: 1.0.9.0
 
 - Added User Info feature:
@@ -63,9 +68,6 @@ After installing the extension, you will be able to:
 - Quick access to chat and messages
 - Real-time data updates.
 
-## Version: 1.0.8.1
-
-- Start delay for letters.
 
 
 [Full list of changes](CHANGELOG.md)
