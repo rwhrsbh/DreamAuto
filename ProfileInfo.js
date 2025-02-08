@@ -36,6 +36,29 @@ let requestTimestamps = {
 };
 let ownerUserId;
 
+const MAX_SUBSCRIBED_IDS = 20000; // Maximum number of subscribed IDs before cleanup
+
+
+function cleanupSubscribedIds() {
+    chrome.storage.local.get(['subscribedIds'], (result) => {
+        const currentIds = result.subscribedIds || [];
+
+        if (currentIds.length > MAX_SUBSCRIBED_IDS) {
+            console.log(`Subscribed IDs (${currentIds.length}) exceeded limit of ${MAX_SUBSCRIBED_IDS}. Cleaning up...`);
+
+            // Clear all subscribed IDs
+            chrome.storage.local.set({ subscribedIds: [] }, () => {
+                console.log('Cleared subscribedIds in storage');
+                subscribedIds.clear(); // Clear the Set in memory
+
+                // Reinitialize WebSocket connection to restart data collection
+                console.log('Reinitializing WebSocket connection after cleanup');
+                initializeWebSocket();
+            });
+        }
+    });
+}
+
 async function getCurrentUserId() {
     try {
         const response = await fetch('https://www.dream-singles.com/members/');
@@ -295,7 +318,11 @@ function showAllStoredData() {
                 
                 userDiv.innerHTML = `
                     <div>
+                    
                         <p style="margin: 8px 0; font-size: 14px;">
+                        ${data?.photo ? `
+                    <img src="${data.photo}" alt="Profile" style="width: 40px; height: 40px; border-radius: 8px; object-fit: cover; cursor: pointer;" onclick="window.open('https://www.dream-singles.com/${userId}.html', '_blank')">
+                ` : ''}
                             <strong style="cursor: pointer; color: ${isBlocked ? '#ef4444' : '#4f46e5'};" onclick="window.open('https://www.dream-singles.com/${userId}.html', '_blank')">${data.displayname || 'Unknown'}</strong> 
                             (<span style="cursor: pointer; color: ${isBlocked ? '#ef4444' : '#4f46e5'};" onclick="window.open('https://www.dream-singles.com/${userId}.html', '_blank')">ID: ${userId}</span>)
                             ${isBlocked ? '<span style="color: #ef4444; margin-left: 5px;">(Blocked)</span>' : ''}
@@ -774,7 +801,6 @@ const showUserInfo = async (userId) => {
                 console.log('Adding user to subscription:', userId);
                 
                 // Add loading spinner
-                const originalContent = addToSubscriptionBtn.innerHTML;
                 addToSubscriptionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
                 addToSubscriptionBtn.disabled = true;
                 
@@ -806,53 +832,6 @@ const showUserInfo = async (userId) => {
             };
         }
     });
-};
-
-const renderUserList = async (users) => {
-    const userListDiv = content.querySelector('#user-list');
-    const userElements = await Promise.all(users.map(async ([userId, data]) => {
-        const messageUrl = await getMessageUrl(userId);
-        return `
-            <div style="border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <p style="margin: 8px 0; font-size: 14px;">
-                        <strong>${data.displayname || 'Unknown'}</strong> (ID: ${userId})
-                    </p>
-                    <p style="margin: 8px 0; font-size: 14px;">
-                        <strong>Credits:</strong> ${data.credits || 0}
-                    </p>
-                    <p style="margin: 8px 0; font-size: 14px;">
-                        <strong>Minutes:</strong> ${data.minutes || 0}
-                    </p>
-                    <p style="margin: 8px 0; font-size: 14px;">
-                        <strong>Last Update:</strong> ${new Date(data.lastUpdate).toLocaleString()}
-                    </p>
-                </div>
-                <div style="display: flex; gap: 10px;">
-                    <a href="https://www.dream-singles.com/members/chat?pid=${userId}" target="_blank" style="
-                        background: #4f46e5;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        font-size: 14px;
-                        text-decoration: none;
-                    ">Open Chat</a>
-                    <button data-user-id="${userId}" class="message-button" style="
-                        background: #22c55e;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        cursor: pointer;
-                        font-size: 14px;
-                    ">Send Message</button>
-                </div>
-            </div>
-        `;
-    }));
-    userListDiv.innerHTML = userElements.join('');
 };
 
 
@@ -1004,34 +983,6 @@ function checkAndRetryRequests() {
     });
 };
 
-const subscribeToAllCollectedIds = () => {
-    if (collectedIds.size === 0) return;
-
-    console.log(`Processing ${collectedIds.size} IDs for subscription`);
-
-    // Filter out IDs that are already subscribed
-    const newIds = Array.from(collectedIds).filter(id => !subscribedIds.has(id));
-
-    if (newIds.length === 0) {
-        console.log('No new IDs to subscribe to');
-        collectedIds.clear();
-        return;
-    }
-
-    console.log(`Found ${newIds.length} new unique IDs to subscribe to`);
-    const sortedIds = newIds.sort((a, b) => a - b);
-
-    // Send all IDs in one chunk
-    sendMessage(ws, {
-        type: "presence-subscribe",
-        payload: sortedIds
-    });
-    console.log(`Subscribed to ${sortedIds.length} new IDs in one batch`);
-
-    // Add all new IDs to subscribedIds
-    sortedIds.forEach(id => subscribedIds.add(id));
-    collectedIds.clear();
-};
 
 function checkInitialDataComplete() {
     const isComplete = initialDataReceived.contacts &&
@@ -1044,16 +995,22 @@ function checkInitialDataComplete() {
         chrome.storage.local.get(['subscribedIds'], (result) => {
             const storedIds = new Set(result.subscribedIds || []);
             const allUniqueIds = new Set([...storedIds, ...collectedIds]);
-            
+
             if (allUniqueIds.size === 0) {
                 console.log('No IDs to subscribe to');
                 return;
             }
 
+            // Check if we need to cleanup before processing
+            if (allUniqueIds.size > MAX_SUBSCRIBED_IDS) {
+                console.log(`Total unique IDs (${allUniqueIds.size}) exceeds limit. Initiating cleanup...`);
+                cleanupSubscribedIds();
+            }
+
             // Sort all unique IDs and send subscription request
             const sortedIds = Array.from(allUniqueIds).sort((a, b) => a - b);
             console.log(`Subscribing to ${sortedIds.length} unique IDs`);
-            
+
             sendMessage(ws, {
                 type: "presence-subscribe",
                 payload: sortedIds
@@ -1069,58 +1026,65 @@ function checkInitialDataComplete() {
     }
 
     return isComplete;
-};
+}
 
 // Remove subscribeToAllCollectedIds function as it's no longer needed
-function initializeWebSocket() {
-    console.log('Initializing WebSocket connection...');
-    if (ws) {
-        console.log('Closing existing WebSocket connection');
-        ws.close();
-    }
-
-    ws = new WebSocket("wss://ws.dream-singles.com/ws");
-    console.log('WebSocket instance created');
-
-    ws.addEventListener("open", async () => {
-        console.log("WebSocket connection established!");
-        try {
-            console.log('Fetching JWT token...');
-            let response = await fetch("/members/jwtToken");
-            if (!response.ok) {
-                console.error(`JWT token fetch failed with status: ${response.status}`);
-                throw new Error(`HTTP error! status: ${response.status}`);
+        function initializeWebSocket() {
+            console.log('Initializing WebSocket connection...');
+            if (ws) {
+                console.log('Closing existing WebSocket connection');
+                ws.close();
             }
-            let token = await response.text();
-            console.log('JWT token received successfully');
 
-            // Reset initial state
-            collectedIds.clear();
-            subscribedIds.clear();
-            initialDataReceived = {
-                contacts: false,
-                favorites: false,
-                onlinePages: new Set(),
-                onlineFinished: false
-            };
+            ws = new WebSocket("wss://ws.dream-singles.com/ws");
+            console.log('WebSocket instance created');
 
-            console.log('Sending authentication request...');
-            sendMessage(ws, {
-                type: "auth",
-                connection: "invite",
-                subscribe_to: [
-                    "auth-response",
-                    "presence-change",
-                    "user-contacts-response",
-                    "men-online-response",
-                    "favorites-response"
-                ],
-                payload: token,
+            ws.addEventListener("open", async () => {
+                console.log("WebSocket connection established!");
+                try {
+                    console.log('Fetching JWT token...');
+                    let response = await fetch("/members/jwtToken", {
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Accept': 'application/json'
+                        },
+                        credentials: 'same-origin'  // Добавили эту строку
+                    });
+
+                    if (!response.ok) {
+                        console.error(`JWT token fetch failed with status: ${response.status}`);
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    let token = await response.text();
+                    console.log('JWT token received successfully');
+
+                    // Reset initial state
+                    collectedIds.clear();
+                    subscribedIds.clear();
+                    initialDataReceived = {
+                        contacts: false,
+                        favorites: false,
+                        onlinePages: new Set(),
+                        onlineFinished: false
+                    };
+
+                    console.log('Sending authentication request...');
+                    sendMessage(ws, {
+                        type: "auth",
+                        connection: "invite",
+                        subscribe_to: [
+                            "auth-response",
+                            "presence-change",
+                            "user-contacts-response",
+                            "men-online-response",
+                            "favorites-response"
+                        ],
+                        payload: token,
+                    });
+                } catch (error) {
+                    console.error("Error during WebSocket initialization:", error);
+                }
             });
-        } catch (error) {
-            console.error("Error during WebSocket initialization:", error);
-        }
-    });
 
     ws.addEventListener("message", (event) => {
         let data = JSON.parse(event.data);
@@ -1131,6 +1095,7 @@ function initializeWebSocket() {
                 console.log(`Authentication ${data.success ? 'successful' : 'failed'}`);
                 if (data.success) {
                     console.log('Resetting data collections and initializing requests...');
+                    cleanupSubscribedIds();
                     collectedIds.clear();
                     subscribedIds.clear();
                     initialDataReceived = {
