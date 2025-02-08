@@ -89,6 +89,9 @@ This project is licensed under [MIT License](LICENSE).
 
 If you have any problems or questions, please create a [issue](https://github.com/rwhrsbh/DreamAuto/issues) in this repository.
 
+[Privacy Policy](PRIVACY).
+
+
 ---
 
 **Note:** This extension is not officially affiliated with Dream-Singles.com. Use it responsibly and in accordance with Dream-Singles.com's terms of service.
