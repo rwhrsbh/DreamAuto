@@ -89,7 +89,7 @@ This project is licensed under [MIT License](LICENSE).
 
 If you have any problems or questions, please create a [issue](https://github.com/rwhrsbh/DreamAuto/issues) in this repository.
 
-[Privacy Policy](PRIVACY).
+[Privacy Policy](PRIVACY.md)
 
 
 ---
