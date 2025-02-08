@@ -83,7 +83,7 @@ We welcome contributions to the development of the project! Please take a look a
 
 ## 📄 License
 
-This project is licensed under [MIT License](LICENSE).
+This project is licensed under [MIT Licence](LICENCE).
 
 ## 📞 Support
 
