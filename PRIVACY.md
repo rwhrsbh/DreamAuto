@@ -85,4 +85,4 @@ You have the right to:
 
 ## Effective Date
 
-This Privacy Policy is effective as of January 2024.
+This Privacy Policy is effective as of February 8, 2025
