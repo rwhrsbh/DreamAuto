@@ -2,6 +2,16 @@
 
 All significant changes to the Dream Auto project will be documented in this file.
 
+## Version: [1.0.9.0] - 2025-01-31
+
+- Added User Info feature:
+- Track users' credits and minutes
+- Monitor blocked status
+- View user countries and plans
+- Quick access to chat and messages
+- Real-time data updates.
+
+
 ## Version: [1.0.8.1] - 2025-01-16
 
 ### Added

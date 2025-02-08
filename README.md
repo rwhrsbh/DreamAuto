@@ -54,17 +54,19 @@ After installing the extension, you will be able to:
 
 ## 🔄 Latest updates
 
+## Version: 1.0.9.0
+
+- Added User Info feature:
+- Track users' credits and minutes
+- Monitor blocked status
+- View user countries and plans
+- Quick access to chat and messages
+- Real-time data updates.
+
 ## Version: 1.0.8.1
 
 - Start delay for letters.
 
-## Version: 1.0.8.0
-
-- Added auto reply.
-
-- Clicking on a chat notification opens the chat tabs for each user.
-
-- Clicking on an email notification opens the inbox tab.
 
 [Full list of changes](CHANGELOG.md)
 
@@ -81,12 +83,16 @@ We welcome contributions to the development of the project! Please take a look a
 
 ## 📄 License
 
-This project is licensed under [MIT License](LICENSE).
+This project is licensed under [MIT Licence](LICENCE).
 
 ## 📞 Support
 
 If you have any problems or questions, please create a [issue](https://github.com/rwhrsbh/DreamAuto/issues) in this repository.
 
+
 ---
 
 **Note:** This extension is not officially affiliated with Dream-Singles.com. Use it responsibly and in accordance with Dream-Singles.com's terms of service.
+
+
+[Privacy Policy](PRIVACY.md)
