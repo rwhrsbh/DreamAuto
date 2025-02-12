@@ -54,20 +54,15 @@ After installing the extension, you will be able to:
 
 ## 🔄 Latest updates
 
+## Version: 1.1.0.0
+
+- Added AI reply
+
 ## Version: 1.0.9.1
 
 - Fixed bugs with token page after login
 - Added a limit on the number of ids for subscription. To avoid socket overload issues. (Should not affect user experience)
   
-## Version: 1.0.9.0
-
-- Added User Info feature:
-- Track users' credits and minutes
-- Monitor blocked status
-- View user countries and plans
-- Quick access to chat and messages
-- Real-time data updates.
-
 
 
 [Full list of changes](CHANGELOG.md)
