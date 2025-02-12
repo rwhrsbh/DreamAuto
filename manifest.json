@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "DreamAuto",
   "description": "All-in-one software for website interaction on Dream-Singles.com",
-  "version": "1.0.9.1",
+  "version": "1.1.0.0",
   "icons": {
     "16": "Images/icon.png",
     "32": "Images/icon.png",
@@ -25,9 +25,9 @@
   "host_permissions": [
     "https://www.dream-singles.com/*",
     "wss://ws.dream-singles.com/ws",
-    "https://dream-singles.com/members"
+    "https://dream-singles.com/members",
+    "https://generativelanguage.googleapis.com/*"
   ],
-
   "content_scripts": [
     {
       "matches": [
@@ -44,6 +44,13 @@
       ],
       "js": ["ProfileInfo.js"],
       "css": [],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://www.dream-singles.com/members/messaging/compose/*"
+      ],
+      "js": ["AskAI.js"],
       "run_at": "document_end"
     }
   ],
