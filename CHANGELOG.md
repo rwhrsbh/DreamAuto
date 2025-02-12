@@ -2,6 +2,13 @@
 
 All significant changes to the Dream Auto project will be documented in this file.
 
+## Version: [1.1.0.0] - 2025-02-12
+
+### Added
+
+- AI reply
+
+
 ## Version: [1.0.9.1] - 2025-02-08
 
 ### Fixed
