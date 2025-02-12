@@ -906,8 +906,8 @@ async function initializeAskAI() {
                                 <ol>
                                     <li>Open terminal</li>
                                     <li>Navigate to the <a href="https://github.com/rwhrsbh/DreamAuto/releases/tag/1.1.0.0" target="_blank">file</a> directory</li>
-                                    <li>Run: <code>sudo chmod +x ./corsSetup.sh</code></li>
-                                    <li>Run: <code>sudo ./corsSetup.sh</code></li>
+                                    <li>Run: <code>sudo chmod +x ./ollama-cors_linux.mac.sh</code></li>
+                                    <li>Run: <code>./ollama-cors_linux.mac.sh</code></li>
                                 </ol>
                             </li>
                         </ul>
