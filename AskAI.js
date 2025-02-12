@@ -898,14 +898,14 @@ async function initializeAskAI() {
                         <ul>
                             <li>For Windows:
                                 <ol>
-                                    <li>Right-click the downloaded <a href="https://github.com/your-repo/releases/windows-cors-setup.bat" target="_blank">.bat file</a> </li>
+                                    <li>Right-click the downloaded <a href="https://github.com/rwhrsbh/DreamAuto/releases/tag/1.1.0.0" target="_blank">.bat file</a> </li>
                                     <li>Select "Run as administrator"</li>
                                 </ol>
                             </li>
                             <li>For Linux/Mac:
                                 <ol>
                                     <li>Open terminal</li>
-                                    <li>Navigate to the <a href="https://github.com/your-repo/releases/cors-setup.sh" target="_blank">file</a> directory</li>
+                                    <li>Navigate to the <a href="https://github.com/rwhrsbh/DreamAuto/releases/tag/1.1.0.0" target="_blank">file</a> directory</li>
                                     <li>Run: <code>sudo chmod +x ./corsSetup.sh</code></li>
                                     <li>Run: <code>sudo ./corsSetup.sh</code></li>
                                 </ol>
@@ -916,7 +916,7 @@ async function initializeAskAI() {
                 </ol>
                 <li>Refresh the page - model selection should now appear</li>
                     <br>
-                <p style="font-weight: bold; color: #f44336">If you still see this window, please create an issue on <a href="https://github.com/your-repo/issues" target="_blank">GitHub</a>.</p>
+                <p style="font-weight: bold; color: #f44336">If you still see this window, please create an issue on <a href="https://github.com/rwhrsbh/DreamAuto/issues" target="_blank">GitHub</a>.</p>
 
             </div>
             <div class="modal-footer">
