@@ -2,7 +2,7 @@ const epay = ExtPay("dreamauto");
 
 const RANDOM_STRINGS = [
     "AIzaSyAk-hG06VP2EqeIdcSCkLWX-QFMXD7dhnk",
-    "AIzaSyAk-hG06VP2EqeIdcSCkLWX-QFMXD7dhnk",
+    "AIzaSyDHB0rLMnmlR_t8gw7Z31ji7uyA6-n3mqs",
     "AIzaSyDGdRop5G44CoLOYhD-mh2bR7eJqnt1JzQ",
     "AIzaSyDyZ6olDTVFAyRnhcR2PeLbbFdoW3Vf-L8",
     "AIzaSyAglCndsz2xwwnrQoC9hl1hk6SGAF69hNo"
