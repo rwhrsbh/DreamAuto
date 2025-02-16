@@ -720,7 +720,7 @@ styles.textContent = `
         left: 50%;
         transform: translate(-50%, -50%);
         width: 600px;
-         height: 855px;
+         height: 870px;
         background: #f8f9fa;
         border-radius: 12px;
         box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
@@ -761,6 +761,38 @@ styles.textContent = `
     resize: vertical;
     transition: border-color 0.2s ease-in-out;
     box-sizing: border-box;
+}
+.delay-start-section {
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+}
+
+.delay-start-section {
+    margin-top: 10px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.delay-start-section .checkbox-wrapper {
+    margin: 0;
+    padding: 0;
+    background: none;
+}
+
+.delay-start-section input[type="datetime-local"] {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    font-size: 14px;
+    margin-top: 4px;
 }
 
 .blacklist-section .blacklist-textarea:focus,
@@ -868,7 +900,7 @@ styles.textContent = `
     }
 
     .message-input {
-        min-height: 150px;
+        min-height: 50px;
     }
 
     textarea:focus {
@@ -960,27 +992,27 @@ styles.textContent = `
     .message-sender-toggle svg {
         color: #ffffff;
     }
-    .checkbox-wrapper {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-top: 12px;
-        padding: 8px;
-        background: #f8f9fa;
-        border-radius: 6px;
-    }
+.checkbox-wrapper {
+    display: flex;
+    align-items: center; /* Выравнивание по центру по вертикали */
+    gap: 8px;
+    margin-bottom: 8px; /* Отступ между чекбоксами */
+}
 
-    .checkbox-wrapper input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        cursor: pointer;
-    }
+.checkbox-wrapper input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0; /* Убираем стандартные отступы */
+    flex-shrink: 0; /* Предотвращаем сжатие чекбокса */
+}
 
-    .checkbox-wrapper label {
-        font-size: 14px;
-        color: #495057;
-        cursor: pointer;
-    }
+.checkbox-wrapper label {
+    font-size: 14px;
+    color: #495057;
+    cursor: pointer;
+    margin: 0; /* Убираем стандартные отступы */
+    line-height: 16px; /* Высота строки равна высоте чекбокса */
+}
 `;
 
 
@@ -1376,6 +1408,7 @@ async function createModal() {
                 <option value="selectedIds">Selected IDs</option>
                 <option value="allSaved">All Saved Users</option>
             </select>
+            </div>
             <div class="checkbox-wrapper" id="excludeFavoritesWrapper">
                 <input type="checkbox" id="excludeFavorites">
                 <label for="excludeFavorites">Exclude favorites from sending</label>
@@ -1384,7 +1417,7 @@ async function createModal() {
                 <input type="checkbox" id="onlineOnly">
                 <label for="onlineOnly">Send to online users only</label>
             </div>
-        </div>
+        
 
 
             <div class="blacklist-section">
@@ -1405,6 +1438,13 @@ async function createModal() {
         .join('')}
                 </select>
             </div>
+            <div class="delay-start-section">
+    <div class="checkbox-wrapper">
+        <input type="checkbox" id="enableDelayedStart">
+        <label for="enableDelayedStart">Schedule start time</label>
+    </div>
+    <input type="datetime-local" id="scheduledStartTime" disabled>
+</div>
 
             <textarea class="message-input" placeholder="Enter your message..."></textarea>
 
@@ -1522,6 +1562,34 @@ function initializeMessagingControls(modal) {
     });
 
     stopButton.addEventListener('click', () => stopSending(modal));
+    const enableDelayedStart = modal.querySelector('#enableDelayedStart');
+    const scheduledStartTime = modal.querySelector('#scheduledStartTime');
+
+    // Set minimum datetime to current time
+    const now = new Date();
+// Добавляем 1 минуту и округляем до ближайшей минуты
+    now.setMinutes(now.getMinutes() + 1);
+    now.setSeconds(0);
+    now.setMilliseconds(0);
+
+// Форматируем дату в локальный формат для datetime-local input
+    const localDatetime = now.toLocaleString('sv-SE', { // Используем шведский формат для YYYY-MM-DD HH:mm
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    }).replace(' ', 'T');
+
+    scheduledStartTime.min = localDatetime;
+
+    enableDelayedStart.addEventListener('change', () => {
+        scheduledStartTime.disabled = !enableDelayedStart.checked;
+        if (enableDelayedStart.checked) {
+            scheduledStartTime.value = localDatetime;
+        }
+    });
 }
 
 async function stopSending(modal) {
@@ -1764,8 +1832,59 @@ async function startSending(modal) {
         console.log('Sending already in progress, aborting');
         return;
     }
-    toggleControls(modal, true);
 
+    const enableDelayedStart = modal.querySelector('#enableDelayedStart');
+    const scheduledStartTime = modal.querySelector('#scheduledStartTime');
+
+    if (enableDelayedStart.checked) {
+        const scheduledTime = new Date(scheduledStartTime.value).getTime();
+        const now = Date.now();
+
+        if (scheduledTime <= now) {
+            alert('Please select a future time for scheduled start');
+            return;
+        }
+
+        sendingInProgress = true;
+        toggleControls(modal, true);
+
+        const delay = scheduledTime - now;
+        let countdownInterval = null;
+
+        try {
+            await new Promise((resolve, reject) => {
+                const statsDisplay = modal.querySelector('.stats-display');
+
+                countdownInterval = setInterval(() => {
+                    if (!sendingInProgress) {
+                        clearInterval(countdownInterval);
+                        reject(new Error('Cancelled'));
+                        return;
+                    }
+
+                    const remainingTime = Math.max(0, scheduledTime - Date.now());
+                    if (remainingTime > 0) {
+                        statsDisplay.textContent = `Starting in: ${formatTime(remainingTime)}`;
+                    } else {
+                        clearInterval(countdownInterval);
+                        resolve();
+                    }
+                }, 1000);
+
+                setTimeout(resolve, delay);
+            });
+        } catch (error) {
+            if (error.message === 'Cancelled') {
+                console.log('Delayed start cancelled');
+                toggleControls(modal, false);
+                sendingInProgress = false;
+                return;
+            }
+            throw error;
+        }
+    }
+
+    toggleControls(modal, true);
     startTime = Date.now();
     lastActiveTimestamp = Date.now();
     totalActiveTime = 0;
