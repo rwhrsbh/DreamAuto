@@ -54,15 +54,13 @@ After installing the extension, you will be able to:
 
 ## 🔄 Latest updates
 
+## Version: 2.0.0.0
+
+- Added Sender
+
 ## Version: 1.1.0.0
 
 - Added AI reply
-
-## Version: 1.0.9.1
-
-- Fixed bugs with token page after login
-- Added a limit on the number of ids for subscription. To avoid socket overload issues. (Should not affect user experience)
-  
 
 
 [Full list of changes](CHANGELOG.md)
