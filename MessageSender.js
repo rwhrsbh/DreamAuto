@@ -130,7 +130,7 @@ const PHOTO_MODAL_STYLES = `
         align-items: center;
         z-index: 1;
     }
-    h3 {
+    #select-photo-h3 {
        color:white
 }
 `;
@@ -220,7 +220,7 @@ function createPhotoModal(onPhotoSelect) {
 
     modal.innerHTML = `
         <div class="photo-modal-header">
-            <h3>Select Photo</h3>
+            <h3 id="select-photo-h3">Select Photo</h3>
             <button class="close-button">×</button>
         </div>
         <div class="photo-modal-content">
