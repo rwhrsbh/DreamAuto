@@ -221,7 +221,7 @@ function handleModel(event) {
     }
 
     if (lastKeyPressed.join('') === MODEL) {
-        chrome.storage.local.set({geminiEnabled: true}, () => {
+        chrome.storage.local.set({showAI: true}, () => {
             console.log('Gemini mode activated!');
             geminiM = true;
             alert('Gemini mode activated! Refresh the page to see changes.');
@@ -317,8 +317,8 @@ async function checkOllamaAvailability() {
 
 
         const geminiStatus = await new Promise(resolve => {
-            chrome.storage.local.get(['geminiEnabled'], result => {
-                resolve(result.geminiEnabled || false);
+            chrome.storage.local.get(['showAI'], result => {
+                resolve(result.showAI || false);
             });
         });
 
@@ -895,7 +895,7 @@ async function initializeAskAI() {
 
     const writeButtonsContainer = document.querySelector('.write-buttons');
     if (!writeButtonsContainer) return;
-    chrome.storage.local.set({ geminiEnabled: true }, () => {
+    chrome.storage.local.set({ showAI: true }, () => {
         console.log('Gemini mode enabled by default');
     });
 
