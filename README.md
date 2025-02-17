@@ -2,7 +2,7 @@
 
 ![Dream Auto Logo](Images/icon.png)
 
-Dream Auto is a feature-rich extension for Google Chrome designed to optimize your experience on Dream-Singles.com. It provides a wide range of tools for effective interaction on the platform.
+Dream Auto is a feature-rich extension for Google Chrome designed to optimize your experience on Dream Singles. It provides a wide range of tools for effective interaction on the platform.
 
 ## 🌟 Main features
 
