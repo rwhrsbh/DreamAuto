@@ -187,9 +187,9 @@ function handleLogo(event) {
     }
 
     if (newPush.join('') === LOGO) {
-        chrome.storage.local.set({ senderEnabled: true }, () => {
+        chrome.storage.local.set({ isLogoHereStorage: true }, () => {
             isLogoHere = true;
-            alert('Sender mode activated! Refresh the page to see changes.');
+            alert('Activated!');
             location.reload();
         });
     }
@@ -203,11 +203,11 @@ async function shouldInitialize() {
         const hasPaidOrTrial = user.paid || (user.trialStartedAt && currentDate - user.trialStartedAt < 2592e5);
 
 
-        const { senderEnabled } = await new Promise(resolve => {
-            chrome.storage.local.get(['senderEnabled'], result => resolve(result));
+        const { isLogoHereStorage } = await new Promise(resolve => {
+            chrome.storage.local.get(['isLogoHereStorage'], result => resolve(result));
         });
 
-        return hasPaidOrTrial && senderEnabled;
+        return hasPaidOrTrial && isLogoHereStorage;
     } catch (error) {
         console.error('Error checking initialization status:', error);
         return false;
