@@ -392,6 +392,9 @@ function generateMessageId() {
     return `${generateRandomMemberId()}-${generateRandomMemberId()}-${hash}`;
 }
 async function handleMessagesList(modal, message, speedValue, mode) {
+    if (!modal) {
+        return;
+    }
     const excludeFavorites = modal.querySelector('#excludeFavorites').checked;
     const onlineOnly = modal.querySelector('#onlineOnly').checked;
     const favorites = excludeFavorites ? await getFavorites() : new Set();
@@ -1489,9 +1492,24 @@ function toggleModal(modal, toggleButton) {
 }
 
 function updateStatsDisplay(modal) {
-    const statsDisplay = modal.querySelector('.stats-display');
-    const targetGroup = modal.querySelector('#targetGroup').value;
+    if (!modal) {
+        console.warn('Modal is undefined in updateStatsDisplay');
+        return;
+    }
 
+    const statsDisplay = modal.querySelector('.stats-display');
+    if (!statsDisplay) {
+        console.warn('Stats display element not found');
+        return;
+    }
+
+    const targetGroupElement = modal.querySelector('#targetGroup');
+    if (!targetGroupElement) {
+        console.warn('Target group element not found');
+        return;
+    }
+
+    const targetGroup = targetGroupElement.value;
     const displayRemaining = Math.max(0, messagingStats.remaining);
 
     let statsText = `Sent: ${messagingStats.sent} | Failed: ${messagingStats.failed} | Remaining: ${displayRemaining}`;
