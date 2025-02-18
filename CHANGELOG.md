@@ -2,6 +2,16 @@
 
 All significant changes to the Dream Auto project will be documented in this file.
 
+## Version: [2.0.0.1] - 2025-02-18
+
+### Fixed
+
+- Changed logic to prevent mails from being blocked by site.
+
+### Added
+
+- Added visual info
+
 ## Version: [2.0.0.0] - 2025-02-17
 
 ### Added
