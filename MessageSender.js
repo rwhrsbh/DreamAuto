@@ -44,21 +44,64 @@ const LOGO = 'wehavesenderathome';
 let isLogoHere = false;
 let newPush = [];
 const PHOTO_MODAL_STYLES = `
-.photo-modal {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 800px;
-        height: 600px;
-        background: #fff;
-        border-radius: 12px;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-        z-index: 10001;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
+
+   .photo-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60vw;     
+    height: 40vh;   
+    min-width: 400px; 
+    min-height: 620px;
+    max-width: 800px; 
+    max-height: 800px; 
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    z-index: 10001;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+
+@media screen and (max-width: 720px) {
+    .photo-modal  {
+        width: 20vw;
+        height: 50vh;
+        min-width: 320px;
+        min-height: 300px;
     }
+}
+@media screen and (min-width: 721px) {
+    .photo-modal {
+        width: 30vw;
+        height: 50vh;
+        min-width: 320px;
+        min-height: 300px;
+    }
+}
+@media screen and (min-width: 900px) {
+    .photo-modal {
+        width: 40vw;
+        height: 50vh;
+        min-width: 320px;
+        min-height: 300px;
+    }
+}
+@media screen and (min-width: 1000px) {
+    .photo-modal  {
+        width: 50vw;
+       height: 50vh;
+    }
+}
+@media screen and (min-width: 1920px) {
+    .photo-modal  {
+        width: 60vw;
+        height: 60vh;
+    }
+}
 
     .photo-modal-header {
         padding: 16px;
@@ -882,7 +925,7 @@ styles.textContent = `
     transform: translate(-50%, -50%);
     width: 30vw;     
     height: 100vh;   
-    min-width: 400px; 
+    min-width: 200px; 
     min-height: 920px;
     max-width: 800px; 
     max-height: 1000px; 
@@ -903,7 +946,7 @@ styles.textContent = `
 @media screen and (max-width: 720px) {
     .message-sender-modal {
         width: 30vw;
-        height: 30vh;
+        height: 50vh;
         min-width: 320px;
         min-height: 300px;
     }
@@ -924,7 +967,7 @@ styles.textContent = `
         min-height: 300px;
     }
 }
-@media screen and (min-width: 100px) {
+@media screen and (min-width: 1000px) {
     .message-sender-modal {
         width: 30vw;
         height: 75vh;
