@@ -54,15 +54,14 @@ After installing the extension, you will be able to:
 
 ## 🔄 Latest updates
 
+## Version: 2.0.0.2
+
+- Series mode added
+
 ## Version: 2.0.0.1
 
 - Changed logic to prevent mails from being blocked by site.
 - Added visual info
-
-## Version: 2.0.0.0
-
-- Added Sender
-
 
 [Full list of changes](CHANGELOG.md)
 
