@@ -21,6 +21,18 @@ let reconnectInterval = null;
 let wsConnectionPromise = null;
 let memberToRegularId = new Map();
 let globalSocket = null;
+let enableMessageSeries = false;
+let cycleCount = 0;
+let seriesMessages = [
+    { text: '', photoId: '', delay: 0 },
+    { text: '', photoId: '', delay: 30 },
+    { text: '', photoId: '', delay: 60 },
+    { text: '', photoId: '', delay: 120 },
+    { text: '', photoId: '', delay: 240 }
+];
+let pendingSeriesMessages = new Map();
+let seriesSentIds = [new Set(), new Set(), new Set(), new Set(), new Set()];
+let seriesFailedIds = [new Set(), new Set(), new Set(), new Set(), new Set()];
 const errorStats = {
     duplicate: new Set(),
     tooShort: new Set(),
@@ -29,6 +41,7 @@ const errorStats = {
     accessDenied: new Set(),
     other: new Set()
 };
+
 function clearErrorStats() {
     errorStats.duplicate.clear();
     errorStats.tooShort.clear();
@@ -43,6 +56,77 @@ const LOADING_ICON = `<svg class="photo-loading-spinner" width="24" height="24" 
 const LOGO = 'wehavesenderathome';
 let isLogoHere = false;
 let newPush = [];
+const seriesStyles = document.createElement('style');
+seriesStyles.textContent = `
+.message-series-toggle {
+    margin-top: 15px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+}
+
+.message-series-container {
+    display: none;
+    margin-top: 15px;
+}
+
+.message-series-container.active {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.series-message {
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+}
+
+.series-message-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.series-delay-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.series-delay-container input {
+    width: 80px;
+    padding: 5px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+.series-photo-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.series-message-input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 80px;
+    background: #ffffff;
+    color: #495057;
+    transition: all 0.2s;
+    line-height: 1.5;
+}
+`;
+document.head.appendChild(seriesStyles);
+
 const PHOTO_MODAL_STYLES = `
 
    .photo-modal {
@@ -552,8 +636,19 @@ async function fetchMessages(mode, page) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const data = await response.json();
-        return data;
+        const text = await response.text();
+
+        if (text.trim() === 'no data') {
+            return { endOfPages: true, messages: [] };
+        }
+
+        try {
+            const data = JSON.parse(text);
+            return data;
+        } catch (error) {
+            console.error('Failed to parse JSON response:', text);
+            throw new Error('Invalid JSON response');
+        }
     } catch (error) {
         if (error.message === 'Rate limit reached') {
             throw error;
@@ -573,9 +668,494 @@ function generateRandomMemberId() {
     return Math.floor(Math.random() * (9999999 - 1000000 + 1) + 1000000);
 }
 function generateMessageId() {
-    const hash = generateHash(32); // Generate 32-character hash like MD5
+    const hash = generateHash(32);
     return `${generateRandomMemberId()}-${generateRandomMemberId()}-${hash}`;
 }
+async function handleSelectedIds(modal, message, speedValue, photoId, excludeFavorites) {
+    try {
+        const selectedIdsInput = modal.querySelector('#selectedIds');
+        const favorites = excludeFavorites ? await getFavorites() : new Set();
+
+        const processedSelectedIds = selectedIdsInput.value
+            .split('\n')
+            .map(id => id.trim())
+            .filter(id => id && !isNaN(id))
+            .map(id => ({
+                regularId: Number(id),
+                memberId: null
+            }))
+            .filter(user => !blacklistedIds.has(user.regularId) && !favorites.has(user.regularId));
+
+        messagingStats.remaining = processedSelectedIds.length;
+        updateStatsDisplay(modal);
+
+        let processedCount = 0;
+
+        const processNextId = async (index) => {
+            if (index >= processedSelectedIds.length || !sendingInProgress) {
+
+                if (sendingInProgress && processedCount >= processedSelectedIds.length && pendingSeriesMessages.size === 0) {
+                    console.log('All selected IDs processed and all series messages complete - stopping sending process');
+                    await stopSending(modal);
+                } else if (sendingInProgress && processedCount >= processedSelectedIds.length) {
+                    console.log('All selected IDs processed but waiting for series messages to complete');
+                    setTimeout(() => {
+                        if (sendingInProgress && pendingSeriesMessages.size === 0) {
+                            console.log('Series messages now complete - stopping sending process');
+                            stopSending(modal);
+                        }
+                    }, 10000);
+                }
+
+                return;
+            }
+
+            const user = processedSelectedIds[index];
+
+            while (pauseUntil && Date.now() < pauseUntil) {
+                if (!sendingInProgress) return;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                updateStatsDisplay(modal);
+            }
+
+            try {
+                const memberId = await getMemberIdFromProfile(user.regularId);
+                if (!memberId) {
+                    processedCount++;
+                    setTimeout(() => {
+                        processNextId(index + 1);
+                    }, 100);
+                    return;
+                }
+
+                await sendMessage(memberId, message, '', '', photoId, user.regularId);
+                processedCount++;
+                updateStatsDisplay(modal);
+
+                const speed = SENDING_SPEEDS[speedValue];
+                setTimeout(() => {
+                    processNextId(index + 1);
+                }, speed.delay || 100);
+
+            } catch (error) {
+                if (error.message === 'Rate limit reached') {
+                    setTimeout(() => {
+                        processNextId(index);
+                    }, 2000);
+                } else {
+                    console.error(`Error processing selected ID ${user.regularId}:`, error);
+                    processedCount++;
+                    setTimeout(() => {
+                        processNextId(index + 1);
+                    }, 100);
+                }
+            }
+        };
+
+        processNextId(0);
+    } catch (error) {
+        console.error('Error in handleSelectedIds:', error);
+        throw error;
+    }
+}
+
+async function handleActiveUsers(modal, message, speedValue, photoId, excludeFavorites) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get(null, async (result) => {
+            try {
+                const favorites = excludeFavorites ? await getFavorites() : new Set();
+                const processedActiveUsers = Object.entries(result)
+                    .filter(([key, value]) => {
+                        if (!key.startsWith('user_') || !value) return false;
+                        const credits = parseFloat(value.credits || '0');
+                        const minutes = parseInt(value.minutes || '0');
+                        const userId = Number(key.replace('user_', ''));
+                        return (credits > 0 || minutes > 0) &&
+                            !blacklistedIds.has(userId) &&
+                            !favorites.has(userId);
+                    })
+                    .map(([key]) => ({
+                        regularId: Number(key.replace('user_', '')),
+                        memberId: null
+                    }));
+
+                messagingStats.remaining = processedActiveUsers.length;
+                updateStatsDisplay(modal);
+
+                let processedCount = 0;
+
+                const processNextActiveUser = async (index) => {
+                    if (index >= processedActiveUsers.length || !sendingInProgress) {
+
+                        if (sendingInProgress && processedCount >= processedActiveUsers.length && pendingSeriesMessages.size === 0) {
+                            console.log('All active users processed and all series messages complete - stopping sending process');
+                            await stopSending(modal);
+                        } else if (sendingInProgress && processedCount >= processedActiveUsers.length) {
+                            console.log('All active users processed but waiting for series messages to complete');
+                            setTimeout(() => {
+                                if (sendingInProgress && pendingSeriesMessages.size === 0) {
+                                    console.log('Series messages now complete - stopping sending process');
+                                    stopSending(modal);
+                                }
+                            }, 10000);
+                        }
+
+                        resolve();
+                        return;
+                    }
+
+                    const user = processedActiveUsers[index];
+
+                    while (pauseUntil && Date.now() < pauseUntil) {
+                        if (!sendingInProgress) {
+                            resolve();
+                            return;
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        updateStatsDisplay(modal);
+                    }
+
+                    try {
+                        const memberId = await getMemberIdFromProfile(user.regularId);
+                        if (!memberId) {
+                            processedCount++;
+                            setTimeout(() => {
+                                processNextActiveUser(index + 1);
+                            }, 100);
+                            return;
+                        }
+
+                        await sendMessage(memberId, message, '', '', photoId, user.regularId);
+                        processedCount++;
+                        updateStatsDisplay(modal);
+
+                        const speed = SENDING_SPEEDS[speedValue];
+                        setTimeout(() => {
+                            processNextActiveUser(index + 1);
+                        }, speed.delay || 100);
+
+                    } catch (error) {
+                        if (error.message === 'Rate limit reached') {
+                            setTimeout(() => {
+                                processNextActiveUser(index);
+                            }, 2000);
+                        } else {
+                            console.error(`Error processing active user ${user.regularId}:`, error);
+                            processedCount++;
+                            setTimeout(() => {
+                                processNextActiveUser(index + 1);
+                            }, 100);
+                        }
+                    }
+                };
+
+                processNextActiveUser(0);
+            } catch (error) {
+                reject(error);
+            }
+        });
+    });
+}
+
+async function handleAllSavedUsers(modal, message, speedValue, photoId, excludeFavorites) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get(['subscribedIds'], async (result) => {
+            try {
+                const favorites = excludeFavorites ? await getFavorites() : new Set();
+                const processedSavedUsers = (result.subscribedIds || [])
+                    .filter(id => {
+                        const numId = Number(id);
+                        return !blacklistedIds.has(numId) && !favorites.has(numId);
+                    })
+                    .map(id => ({
+                        regularId: Number(id),
+                        memberId: null
+                    }));
+
+                messagingStats.remaining = processedSavedUsers.length;
+                updateStatsDisplay(modal);
+
+                let processedCount = 0;
+
+                const processNextSavedUser = async (index) => {
+                    if (index >= processedSavedUsers.length || !sendingInProgress) {
+
+                        if (sendingInProgress && processedCount >= processedSavedUsers.length && pendingSeriesMessages.size === 0) {
+                            console.log('All saved users processed and all series messages complete - stopping sending process');
+                            await stopSending(modal);
+                        } else if (sendingInProgress && processedCount >= processedSavedUsers.length) {
+                            console.log('All saved users processed but waiting for series messages to complete');
+                            setTimeout(() => {
+                                if (sendingInProgress && pendingSeriesMessages.size === 0) {
+                                    console.log('Series messages now complete - stopping sending process');
+                                    stopSending(modal);
+                                }
+                            }, 10000);
+                        }
+
+                        resolve();
+                        return;
+                    }
+
+                    const user = processedSavedUsers[index];
+
+                    while (pauseUntil && Date.now() < pauseUntil) {
+                        if (!sendingInProgress) {
+                            resolve();
+                            return;
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        updateStatsDisplay(modal);
+                    }
+
+                    try {
+                        const memberId = await getMemberIdFromProfile(user.regularId);
+                        if (!memberId) {
+                            processedCount++;
+                            setTimeout(() => {
+                                processNextSavedUser(index + 1);
+                            }, 100);
+                            return;
+                        }
+
+                        await sendMessage(memberId, message, '', '', photoId, user.regularId);
+                        processedCount++;
+                        updateStatsDisplay(modal);
+
+                        const speed = SENDING_SPEEDS[speedValue];
+                        setTimeout(() => {
+                            processNextSavedUser(index + 1);
+                        }, speed.delay || 100);
+
+                    } catch (error) {
+                        if (error.message === 'Rate limit reached') {
+                            setTimeout(() => {
+                                processNextSavedUser(index);
+                            }, 2000);
+                        } else {
+                            console.error(`Error processing saved user ${user.regularId}:`, error);
+                            processedCount++;
+                            setTimeout(() => {
+                                processNextSavedUser(index + 1);
+                            }, 100);
+                        }
+                    }
+                };
+
+                processNextSavedUser(0);
+            } catch (error) {
+                reject(error);
+            }
+        });
+    });
+}
+
+async function handleContacts(modal, message, speedValue, photoId, excludeFavorites) {
+    return new Promise((resolve, reject) => {
+        const contactsHandler = async (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === "user-contacts-response") {
+                    if (!data.payload) {
+                        ws.removeEventListener("message", contactsHandler);
+                        resolve();
+                        return;
+                    }
+
+                    const favorites = excludeFavorites ? await getFavorites() : new Set();
+                    const processedContacts = Object.values(data.payload)
+                        .filter(user => {
+                            const regularId = Number(user.id);
+                            return !blacklistedIds.has(regularId) && !favorites.has(regularId);
+                        })
+                        .map(user => ({
+                            memberId: user.member_id,
+                            regularId: Number(user.id)
+                        }));
+
+                    messagingStats.remaining = processedContacts.length;
+                    updateStatsDisplay(modal);
+
+                    let processedCount = 0;
+
+                    const processNextContact = async (index) => {
+                        if (index >= processedContacts.length || !sendingInProgress) {
+                            ws.removeEventListener("message", contactsHandler);
+
+                            if (sendingInProgress && processedCount >= processedContacts.length && pendingSeriesMessages.size === 0) {
+                                console.log('All contacts processed and all series messages complete - stopping sending process');
+                                await stopSending(modal);
+                            } else if (sendingInProgress && processedCount >= processedContacts.length) {
+                                console.log('All contacts processed but waiting for series messages to complete');
+                                setTimeout(() => {
+                                    if (sendingInProgress && pendingSeriesMessages.size === 0) {
+                                        console.log('Series messages now complete - stopping sending process');
+                                        stopSending(modal);
+                                    }
+                                }, 10000);
+                            }
+
+                            resolve();
+                            return;
+                        }
+
+                        const contact = processedContacts[index];
+
+                        while (pauseUntil && Date.now() < pauseUntil) {
+                            if (!sendingInProgress) {
+                                resolve();
+                                return;
+                            }
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            updateStatsDisplay(modal);
+                        }
+
+                        try {
+                            await sendMessage(contact.memberId, message, '', '', photoId, contact.regularId);
+                            processedCount++;
+                            updateStatsDisplay(modal);
+
+                            const speed = SENDING_SPEEDS[speedValue];
+                            setTimeout(() => {
+                                processNextContact(index + 1);
+                            }, speed.delay || 100);
+
+                        } catch (error) {
+                            if (error.message === 'Rate limit reached') {
+                                setTimeout(() => {
+                                    processNextContact(index);
+                                }, 2000);
+                            } else {
+                                console.error(`Error processing contact ${contact.memberId}:`, error);
+                                processedCount++;
+                                setTimeout(() => {
+                                    processNextContact(index + 1);
+                                }, 100);
+                            }
+                        }
+                    };
+
+                    processNextContact(0);
+                }
+            } catch (error) {
+                ws.removeEventListener("message", contactsHandler);
+                reject(error);
+            }
+        };
+
+        ws.addEventListener("message", contactsHandler);
+        activeEventHandlers.add(contactsHandler);
+        ws.send(JSON.stringify({
+            type: "user-contacts-request",
+            other_id: ""
+        }));
+    });
+}
+
+async function handleFavorites(modal, message, speedValue, photoId) {
+    return new Promise((resolve, reject) => {
+        const favoritesHandler = async (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === "favorites-response") {
+                    if (!data.payload) {
+                        ws.removeEventListener("message", favoritesHandler);
+                        resolve();
+                        return;
+                    }
+
+                    const processedFavorites = data.payload
+                        .filter(item => !blacklistedIds.has(Number(item.profile_to)))
+                        .map(item => ({
+                            regularId: Number(item.profile_to),
+                            memberId: null
+                        }));
+
+                    messagingStats.remaining = processedFavorites.length;
+                    updateStatsDisplay(modal);
+
+                    let processedCount = 0;
+
+                    const processNextFavorite = async (index) => {
+                        if (index >= processedFavorites.length || !sendingInProgress) {
+                            ws.removeEventListener("message", favoritesHandler);
+
+                            if (sendingInProgress && processedCount >= processedFavorites.length && pendingSeriesMessages.size === 0) {
+                                console.log('All favorites processed and all series messages complete - stopping sending process');
+                                await stopSending(modal);
+                            } else if (sendingInProgress && processedCount >= processedFavorites.length) {
+                                console.log('All favorites processed but waiting for series messages to complete');
+                                setTimeout(() => {
+                                    if (sendingInProgress && pendingSeriesMessages.size === 0) {
+                                        console.log('Series messages now complete - stopping sending process');
+                                        stopSending(modal);
+                                    }
+                                }, 10000);
+                            }
+
+                            resolve();
+                            return;
+                        }
+
+                        const favorite = processedFavorites[index];
+
+                        while (pauseUntil && Date.now() < pauseUntil) {
+                            if (!sendingInProgress) {
+                                resolve();
+                                return;
+                            }
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            updateStatsDisplay(modal);
+                        }
+
+                        try {
+                            const memberId = await getMemberIdFromProfile(favorite.regularId);
+                            if (!memberId) {
+                                processedCount++;
+                                setTimeout(() => {
+                                    processNextFavorite(index + 1);
+                                }, 100);
+                                return;
+                            }
+
+                            await sendMessage(memberId, message, '', '', photoId, favorite.regularId);
+                            processedCount++;
+                            updateStatsDisplay(modal);
+
+                            const speed = SENDING_SPEEDS[speedValue];
+                            setTimeout(() => {
+                                processNextFavorite(index + 1);
+                            }, speed.delay || 100);
+
+                        } catch (error) {
+                            if (error.message === 'Rate limit reached') {
+                                setTimeout(() => {
+                                    processNextFavorite(index);
+                                }, 2000);
+                            } else {
+                                console.error(`Error processing favorite ${favorite.regularId}:`, error);
+                                processedCount++;
+                                setTimeout(() => {
+                                    processNextFavorite(index + 1);
+                                }, 100);
+                            }
+                        }
+                    };
+
+                    processNextFavorite(0);
+                }
+            } catch (error) {
+                ws.removeEventListener("message", favoritesHandler);
+                reject(error);
+            }
+        };
+
+        ws.addEventListener("message", favoritesHandler);
+        activeEventHandlers.add(favoritesHandler);
+        ws.send(JSON.stringify({ type: "favorites-request" }));
+    });
+}
+
 async function handleMessagesList(modal, message, speedValue, mode) {
     if (!modal) {
         return;
@@ -583,24 +1163,28 @@ async function handleMessagesList(modal, message, speedValue, mode) {
     const PAGE_CHANGE_DELAY = 1000;
     const excludeFavorites = modal.querySelector('#excludeFavorites').checked;
     const onlineOnly = modal.querySelector('#onlineOnly').checked;
+    const enableCycling = modal.querySelector('#enableCycling').checked;
     const favorites = excludeFavorites ? await getFavorites() : new Set();
-    const selectedPhotoId = modal.dataset.selectedPhotoId || '';
+    const selectedPhotoId = !enableMessageSeries ?
+        (modal.dataset.selectedPhotoId || '') :
+        (seriesMessages[0].photoId || '');
+
+    cycleCount = 0;
 
     currentPage = 1;
     let processedIds = new Set();
-    let previousPageMessages = null;
+    let reachedEndOfPages = false;
 
     async function processMessagesPage() {
         while (sendingInProgress) {
             try {
-                // Handle rate limit pause
                 while (pauseUntil && Date.now() < pauseUntil) {
                     if (!sendingInProgress) return;
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     updateStatsDisplay(modal);
                 }
 
-                console.log(`Fetching ${mode} messages page ${currentPage}`);
+                console.log(`Fetching ${mode} messages page ${currentPage} (cycle ${cycleCount})`);
                 let data;
                 try {
                     data = await fetchMessages(mode === 'read' ? 'sent' : 'inbox', currentPage);
@@ -608,33 +1192,76 @@ async function handleMessagesList(modal, message, speedValue, mode) {
                     if (error.message === 'Rate limit reached') {
                         console.log('Rate limit reached during fetch, continuing to handle pause');
                         updateStatsDisplay(modal);
-                        continue; // Continue main loop to handle the pause
+                        continue;
                     }
-
+                    throw error;
                 }
 
                 updateStatsDisplay(modal);
 
-                if (!data.messages || !Array.isArray(data.messages)) {
+                if (data.endOfPages) {
+                    console.log(`Received "no data" response - end of pages detected`);
+                    reachedEndOfPages = true;
+                } else if (!data.messages || !Array.isArray(data.messages)) {
                     console.error('No messages array in response:', data);
                     updateStatsDisplay(modal);
-                    return;
+                    currentPage++;
+                    await new Promise(resolve => setTimeout(resolve, PAGE_CHANGE_DELAY));
+                    continue;
+                } else if (data.currentPage && data.lastPage &&
+                    data.currentPage === data.lastPage) {
+                    console.log(`Current page (${data.currentPage}) equals last page (${data.lastPage}) - end of pages detected`);
+                    reachedEndOfPages = true;
                 }
 
-                if (previousPageMessages) {
-                    const currentPageContent = JSON.stringify(data.messages);
-                    const previousPageContent = JSON.stringify(previousPageMessages);
+                if (reachedEndOfPages) {
+                    if (enableCycling && sendingInProgress) {
+                        cycleCount++;
+                        currentPage = 1;
+                        processedIds.clear();
+                        reachedEndOfPages = false;
 
-                    if (currentPageContent === previousPageContent) {
-                        console.log('Reached end of messages - current page matches previous page');
+                        console.log(`Starting new cycle ${cycleCount}`);
+                        await new Promise(resolve => setTimeout(resolve, PAGE_CHANGE_DELAY * 3));
+                        updateStatsDisplay(modal);
+                        continue;
+                    } else {
+                        console.log('Reached end of all pages and cycling not enabled');
                         if (sendingInProgress) {
-                            await stopSending(modal);
+                            if (pendingSeriesMessages.size > 0) {
+                                console.log(`Waiting for ${pendingSeriesMessages.size} pending series messages to complete before stopping`);
+
+                                const checkInterval = setInterval(() => {
+                                    if (pendingSeriesMessages.size === 0 || !sendingInProgress) {
+                                        clearInterval(checkInterval);
+                                        if (sendingInProgress) {
+                                            console.log('All series messages now complete, stopping sending process');
+                                            stopSending(modal);
+                                        }
+                                    } else {
+                                        console.log(`Still waiting for ${pendingSeriesMessages.size} pending series messages to complete`);
+                                    }
+                                }, 5000);
+
+                                setTimeout(() => {
+                                    if (checkInterval) {
+                                        clearInterval(checkInterval);
+                                        if (sendingInProgress) {
+                                            console.log('Maximum wait time reached, stopping sending process even with pending messages');
+                                            stopSending(modal);
+                                        }
+                                    }
+                                }, 60000);
+
+                                return;
+                            } else {
+                                await stopSending(modal);
+                                return;
+                            }
                         }
                         return;
                     }
                 }
-
-                previousPageMessages = [...data.messages];
 
                 if (mode === 'inbox') {
                     const eligibleMessages = data.messages.filter(msg => {
@@ -646,11 +1273,11 @@ async function handleMessagesList(modal, message, speedValue, mode) {
                         const memberId = messageId.split('-')[0];
                         const isUnique = !processedIds.has(memberId);
 
-                        if (isUnique) {
+                        if (isUnique && meetsOnlineRequirement && !isBlacklisted && !isFavorite) {
                             processedIds.add(memberId);
+                            return true;
                         }
-
-                        return !isBlacklisted && !isFavorite && meetsOnlineRequirement && isUnique;
+                        return false;
                     });
 
                     if (eligibleMessages.length > 0) {
@@ -681,10 +1308,11 @@ async function handleMessagesList(modal, message, speedValue, mode) {
 
                         } catch (error) {
                             if (error.message === 'Rate limit reached') {
-                                continue; // Will loop back to check pauseUntil
+                                continue;
                             }
                             console.error('Error processing inbox message:', error);
                             updateStatsDisplay(modal);
+                            continue;
                         }
                     }
                 } else {
@@ -697,11 +1325,11 @@ async function handleMessagesList(modal, message, speedValue, mode) {
                         const recipientMemberId = linkParts[1];
                         const isUnique = !processedIds.has(recipientMemberId);
 
-                        if (isUnique) {
+                        if (isUnique && meetsOnlineRequirement && !isBlacklisted && !isFavorite) {
                             processedIds.add(recipientMemberId);
+                            return true;
                         }
-
-                        return !isBlacklisted && !isFavorite && meetsOnlineRequirement && isUnique;
+                        return false;
                     });
 
                     if (eligibleMessages.length > 0) {
@@ -732,36 +1360,85 @@ async function handleMessagesList(modal, message, speedValue, mode) {
 
                         } catch (error) {
                             if (error.message === 'Rate limit reached') {
-                                continue; // Will loop back to check pauseUntil
+                                continue;
                             }
                             console.error('Error processing read message:', error);
                             updateStatsDisplay(modal);
+                            continue;
                         }
                     }
                 }
 
-                if (data.messages.length > 0 && sendingInProgress) {
+                if (sendingInProgress && !reachedEndOfPages) {
                     currentPage++;
                     console.log(`Moving to page ${currentPage}`);
                     await new Promise(resolve => setTimeout(resolve, PAGE_CHANGE_DELAY));
-                    updateStatsDisplay()
-                    continue; // Continue the main while loop
+                    updateStatsDisplay(modal);
+                    continue;
                 } else {
-                    console.log('Reached end of messages - no more messages available');
-                    if (sendingInProgress) {
-                        await stopSending(modal);
-                    }
                     break;
                 }
-
             } catch (error) {
-                if (error.message === 'Rate limit reached') {
+                if (error.message.includes('SyntaxError') || error.message.includes('Unexpected token')) {
+                    console.log('Received invalid JSON response, likely "no data" - end of pages detected');
+                    reachedEndOfPages = true;
+
+                    if (enableCycling && sendingInProgress) {
+                        cycleCount++;
+                        currentPage = 1;
+                        processedIds.clear();
+                        reachedEndOfPages = false;
+
+                        console.log(`Starting new cycle ${cycleCount}`);
+                        await new Promise(resolve => setTimeout(resolve, PAGE_CHANGE_DELAY * 3));
+                        updateStatsDisplay(modal);
+                        continue;
+                    } else {
+                        console.log('Reached end of messages and cycling not enabled');
+                        if (sendingInProgress) {
+                            if (pendingSeriesMessages.size > 0) {
+                                console.log(`Waiting for ${pendingSeriesMessages.size} pending series messages to complete before stopping`);
+
+                                const checkInterval = setInterval(() => {
+                                    if (pendingSeriesMessages.size === 0 || !sendingInProgress) {
+                                        clearInterval(checkInterval);
+                                        if (sendingInProgress) {
+                                            console.log('All series messages now complete, stopping sending process');
+                                            stopSending(modal);
+                                        }
+                                    } else {
+                                        console.log(`Still waiting for ${pendingSeriesMessages.size} pending series messages to complete`);
+                                    }
+                                }, 5000);
+
+                                setTimeout(() => {
+                                    if (checkInterval) {
+                                        clearInterval(checkInterval);
+                                        if (sendingInProgress) {
+                                            console.log('Maximum wait time reached, stopping sending process even with pending messages');
+                                            stopSending(modal);
+                                        }
+                                    }
+                                }, 60000);
+
+                                return;
+                            } else {
+                                await stopSending(modal);
+                            }
+                        }
+                        return;
+                    }
+                } else if (error.message === 'Rate limit reached') {
                     console.log('Rate limit reached, pausing processing');
                     updateStatsDisplay(modal);
-                    continue; // Continue the main while loop to handle the pause
+                    continue;
                 }
+
                 console.error(`Error processing ${mode} messages:`, error);
-                await stopSending(modal);
+                if (sendingInProgress) {
+                    console.log('Critical error - stopping process');
+                    await stopSending(modal);
+                }
                 break;
             }
         }
@@ -770,13 +1447,16 @@ async function handleMessagesList(modal, message, speedValue, mode) {
     await processMessagesPage();
 }
 
-
 async function toggleControls(modal, disabled) {
     const controls = modal.querySelectorAll('select, textarea, input, button');
     const startButton = modal.querySelector('#startButton');
     const stopButton = modal.querySelector('#stopButton');
     const photoButton = modal.querySelector('button[class="action-button"]');
     const removePhotoButton = modal.querySelector('.remove-photo');
+    const seriesControls = modal.querySelectorAll('.series-message-input, .series-delay, .series-photo-button, .series-remove-photo');
+    seriesControls.forEach(control => {
+        control.disabled = disabled;
+    });
 
     controls.forEach(control => {
         control.disabled = disabled;
@@ -811,8 +1491,18 @@ let initialDataReceived = {
 let messagingStats = {
     sent: 0,
     failed: 0,
-    remaining: 0
+    remaining: 0,
+    series: [
+        { sent: 0, failed: 0 },
+        { sent: 0, failed: 0 },
+        { sent: 0, failed: 0 },
+        { sent: 0, failed: 0 },
+        { sent: 0, failed: 0 }
+    ]
 };
+let sendingLock = false;
+let sendingQueue = [];
+
 
 const SENDING_SPEEDS = {
     '0.06': { delay: 4000, parallel: false },
@@ -1342,155 +2032,222 @@ let lastRequestTime = null;
 const MIN_REQUEST_DELAY = 50;
 
 
-async function sendMessage(memberId, message, messageId = '', mode = '', photoId = '', regularId = null) {
-
-    if (blacklistedIds.has(memberId)) {
-        console.log(`[${memberId}] Skipping blacklisted user`);
-        messagingStats.remaining--;
-        return;
+async function sendMessage(memberId, message, messageId = '', mode = '', photoId = '', regularId = null, isSeriesMessage = false, messageIndex = 0) {
+    if (sendingLock) {
+        await new Promise(resolve => {
+            const checkInterval = setInterval(() => {
+                if (!sendingLock) {
+                    clearInterval(checkInterval);
+                    resolve();
+                }
+            }, 100);
+        });
     }
 
-    if (pauseUntil) {
-        if (Date.now() < pauseUntil) {
-            rateLimitedIds.add(memberId);
-            throw new Error('Rate limit pause active');
-        } else {
-            pauseUntil = null;
-            rateLimitedIds.clear();
-        }
-    }
-
-    if (lastRequestTime) {
-        const timeSinceLastRequest = Date.now() - lastRequestTime;
-        if (timeSinceLastRequest < MIN_REQUEST_DELAY) {
-            await new Promise(resolve => setTimeout(resolve, MIN_REQUEST_DELAY - timeSinceLastRequest));
-        }
-    }
-
-    const requestId = `${memberId}-${Date.now()}`;
-    pendingRequests.add(requestId);
+    sendingLock = true;
 
     try {
-        lastRequestTime = Date.now();
-        const formData = new FormData();
-        formData.append('messaging_compose[replyId]', messageId || generateMessageId());
-        formData.append('messaging_compose[type]', 'plain_message');
-        formData.append('messaging_compose[submit]', '');
-        formData.append('messaging_compose[plainMessage]', message);
-        formData.append('messaging_compose[htmlMessage]', '');
-        formData.append('messaging_compose[galleryId]', photoId);
-        formData.append('messaging_compose[selectedPhoto]', '');
-        formData.append('messaging_compose[saveIntro]', '');
-        formData.append('messaging_compose[videoReply]', '1');
-        formData.append('messaging_compose[intro]', '');
-        formData.append('messaging_compose[draftId]', '');
-
-        const url = mode === 'inbox'
-            ? `https://www.dream-singles.com/members/messaging/compose/${memberId}?mode=inbox&page=1&view=all&replyId=${messageId}&date=`
-            : `https://www.dream-singles.com/members/messaging/compose/${memberId}`;
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Accept': 'text/html',
-                'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Referer': url
-            },
-            body: formData,
-            credentials: 'include',
-            redirect: 'manual'
-        });
-
-        if (response.status === 429) {
-            const retryAfter = response.headers.get('Retry-After');
-            const pauseDuration = (retryAfter ? parseInt(retryAfter) : 60) * 1000;
-            pauseUntil = Date.now() + pauseDuration;
-            rateLimitedIds.add(memberId);
-            throw new Error('Rate limit reached');
+        if (blacklistedIds.has(memberId)) {
+            console.log(`[${memberId}] Skipping blacklisted user`);
+            messagingStats.remaining--;
+            return false;
         }
 
-        if (response.type === 'opaqueredirect') {
-            const redirectUrl = response.headers.get('Location');
-            if (redirectUrl === 'https://www.dream-singles.com/members/') {
-                console.log(`[${memberId}] Inactive profile detected`);
+        if (pauseUntil) {
+            if (Date.now() < pauseUntil) {
+                rateLimitedIds.add(memberId);
+                throw new Error('Rate limit pause active');
+            } else {
+                pauseUntil = null;
+                rateLimitedIds.clear();
+            }
+        }
+
+        if (lastRequestTime) {
+            const timeSinceLastRequest = Date.now() - lastRequestTime;
+            if (timeSinceLastRequest < MIN_REQUEST_DELAY) {
+                await new Promise(resolve => setTimeout(resolve, MIN_REQUEST_DELAY - timeSinceLastRequest));
+            }
+        }
+
+        const requestId = `${memberId}-${Date.now()}`;
+        pendingRequests.add(requestId);
+
+        try {
+            lastRequestTime = Date.now();
+            const formData = new FormData();
+            formData.append('messaging_compose[replyId]', messageId || generateMessageId());
+            formData.append('messaging_compose[type]', 'plain_message');
+            formData.append('messaging_compose[submit]', '');
+            formData.append('messaging_compose[plainMessage]', message);
+            formData.append('messaging_compose[htmlMessage]', '');
+            formData.append('messaging_compose[galleryId]', photoId);
+            formData.append('messaging_compose[selectedPhoto]', '');
+            formData.append('messaging_compose[saveIntro]', '');
+            formData.append('messaging_compose[videoReply]', '1');
+            formData.append('messaging_compose[intro]', '');
+            formData.append('messaging_compose[draftId]', '');
+
+            const url = mode === 'inbox'
+                ? `https://www.dream-singles.com/members/messaging/compose/${memberId}?mode=inbox&page=1&view=all&replyId=${messageId}&date=`
+                : `https://www.dream-singles.com/members/messaging/compose/${memberId}`;
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'text/html',
+                    'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Referer': url
+                },
+                body: formData,
+                credentials: 'include',
+                redirect: 'manual'
+            });
+
+            if (response.status === 429) {
+                const retryAfter = response.headers.get('Retry-After');
+                const pauseDuration = (retryAfter ? parseInt(retryAfter) : 60) * 1000;
+                pauseUntil = Date.now() + pauseDuration;
+                rateLimitedIds.add(memberId);
+                throw new Error('Rate limit reached');
+            }
+
+            if (response.type === 'opaqueredirect') {
+                console.log(`[${memberId}] Message sent successfully (redirect)`);
+                messagingStats.sent++;
+
+                if (isSeriesMessage && messageIndex >= 0 && messageIndex < messagingStats.series.length) {
+                    messagingStats.series[messageIndex].sent++;
+                } else if (!isSeriesMessage) {
+                    messagingStats.series[0].sent++;
+                }
+
+                if (!isSeriesMessage || messageIndex === 0) {
+                    messagingStats.remaining--;
+                }
+
+                rateLimitedIds.delete(memberId);
+
                 if (regularId) {
-                    errorStats.inactive.add(regularId);
-                    failedIds.add(regularId);
+                    sentIds.add(regularId);
+                    if (isSeriesMessage && messageIndex >= 0 && messageIndex < seriesSentIds.length) {
+                        seriesSentIds[messageIndex].add(regularId);
+                    } else if (!isSeriesMessage) {
+                        seriesSentIds[0].add(regularId);
+                    }
                     memberToRegularId.set(memberId, regularId);
                 }
+
+                const modal = document.querySelector('.message-sender-modal');
+                if (modal) {
+                    updateStatsDisplay(modal);
+                }
+
+                if (enableMessageSeries &&
+                    seriesMessages[0].text.trim() === message.trim() &&
+                    !isSeriesMessage) {
+
+                    if (seriesMessages[1].text.trim()) {
+                        const delay = seriesMessages[1].delay * 1000;
+                        console.log(`Initiating message series for ${memberId}, first followup in ${delay}ms`);
+
+                        pendingSeriesMessages.set(memberId, {
+                            messageId,
+                            mode,
+                            regularId,
+                            nextIndex: 1,
+                            timeoutId: setTimeout(() => {
+                                if (sendingInProgress) {
+                                    sendSeriesMessage(memberId, messageId, mode, regularId);
+                                }
+                            }, delay)
+                        });
+                    }
+                }
+
+                return true;
+            }
+
+            const responseText = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(responseText, 'text/html');
+            const errorAlerts = doc.querySelectorAll('.alert-danger');
+
+            if (errorAlerts.length > 0) {
+                const errorText = errorAlerts[0].textContent.trim();
+
+                if (regularId) {
+                    if (errorText.includes('already sent this message')) {
+                        errorStats.duplicate.add(regularId);
+                    } else if (errorText.includes('message is too short')) {
+                        errorStats.tooShort.add(regularId);
+                    } else if (errorText.includes('This user is Invisible')) {
+                        errorStats.invisible.add(regularId);
+                    } else if (errorText.includes('Access Denied')) {
+                        errorStats.accessDenied.add(regularId);
+                    }
+                    else {
+                        errorStats.other.add(regularId);
+                    }
+
+                    if (!failedIds.has(regularId)) {
+                        failedIds.add(regularId);
+                        memberToRegularId.set(memberId, regularId);
+                    }
+                }
+
+
+                throw new Error(`Message sending failed: ${errorText}`);
+            }
+            const modal = document.querySelector('.message-sender-modal');
+            if (modal) {
+                updateStatsDisplay(modal);
+            }
+
+            throw new Error(`Message sending failed: unexpected response`);
+
+        } catch (error) {
+            if (error.message.includes('Rate limit reached')) {
+                throw error;
+            } else if (error.message === 'Rate limit pause active') {
+                throw error;
+            } else {
+                console.error(`Error sending message to ${memberId}:`, error);
                 messagingStats.failed++;
-                messagingStats.remaining--;
-                throw new Error('Inactive profile');
-            }
-
-            console.log(`[${memberId}] Message sent successfully (redirect)`);
-            messagingStats.sent++;
-            messagingStats.remaining--;
-            rateLimitedIds.delete(memberId);
-
-            if (regularId) {
-                sentIds.add(regularId);
-                memberToRegularId.set(memberId, regularId);
-            }
-
-            return true;
-        }
-
-        const responseText = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(responseText, 'text/html');
-        const errorAlerts = doc.querySelectorAll('.alert-danger');
-
-        if (errorAlerts.length > 0) {
-            const errorText = errorAlerts[0].textContent.trim();
-
-            if (regularId) {
-                if (errorText.includes('already sent this message')) {
-                    errorStats.duplicate.add(regularId);
-                } else if (errorText.includes('message is too short')) {
-                    errorStats.tooShort.add(regularId);
-                } else if (errorText.includes('This user is Invisible')) {
-                    errorStats.invisible.add(regularId);
-                } else if (errorText.includes('Access Denied')) {
-                    errorStats.accessDenied.add(regularId);
-                }
-                else {
-                    errorStats.other.add(regularId);
+                const modal = document.querySelector('.message-sender-modal');
+                if (modal) {
+                    updateStatsDisplay(modal);
                 }
 
-                if (!failedIds.has(regularId)) {
+                if (isSeriesMessage && messageIndex >= 0 && messageIndex < messagingStats.series.length) {
+                    messagingStats.series[messageIndex].failed++;
+                } else if (!isSeriesMessage) {
+                    messagingStats.series[0].failed++;
+                }
+
+                if (!isSeriesMessage || messageIndex === 0) {
+                    messagingStats.remaining--;
+                }
+
+                if (regularId && !failedIds.has(regularId)) {
                     failedIds.add(regularId);
+                    if (isSeriesMessage && messageIndex >= 0 && messageIndex < seriesFailedIds.length) {
+                        seriesFailedIds[messageIndex].add(regularId);
+                    } else if (!isSeriesMessage) {
+                        seriesFailedIds[0].add(regularId);
+                    }
                     memberToRegularId.set(memberId, regularId);
                 }
+
+                throw error;
             }
-
-            throw new Error(`Message sending failed: ${errorText}`);
-        }
-
-        throw new Error('Message sending failed: Unexpected response');
-
-    } catch (error) {
-        if (error.message.includes('Rate limit reached')) {
-            throw error;
-        } else if (error.message === 'Rate limit pause active') {
-            throw error;
-        } else {
-            console.error(`Error sending message to ${memberId}:`, error);
-            messagingStats.failed++;
-            messagingStats.remaining--;
-
-            if (regularId && !failedIds.has(regularId)) {
-                failedIds.add(regularId);
-                memberToRegularId.set(memberId, regularId);
-            }
-
-            throw error;
+        } finally {
+            pendingRequests.delete(requestId);
         }
     } finally {
-        pendingRequests.delete(requestId);
+        sendingLock = false;
     }
 }
-
 
 
 
@@ -1612,6 +2369,109 @@ async function initializeWebSocket() {
     return wsConnectionPromise;
 }
 
+
+async function sendSeriesMessage(memberId, messageId, mode, regularId) {
+    if (!sendingInProgress || !enableMessageSeries) return false;
+
+    let tracking = pendingSeriesMessages.get(memberId);
+    if (!tracking) {
+        tracking = {messageId, mode, regularId, nextIndex: 1, timeoutId: null};
+        pendingSeriesMessages.set(memberId, tracking);
+    }
+
+    if (tracking.nextIndex >= seriesMessages.length || !seriesMessages[tracking.nextIndex].text.trim()) {
+        console.log(`No more messages to send to ${memberId} in series`);
+        pendingSeriesMessages.delete(memberId);
+        return false;
+    }
+
+    try {
+        const currentIndex = tracking.nextIndex;
+        const message = seriesMessages[currentIndex];
+
+        console.log(`Sending series message ${currentIndex + 1} to ${memberId} (${tracking.regularId})`);
+
+        await sendMessage(
+            memberId,
+            message.text,
+            tracking.messageId,
+            tracking.mode,
+            message.photoId,
+            tracking.regularId,
+            true,
+            currentIndex
+        );
+
+        console.log(`Successfully sent series message ${currentIndex + 1} to ${memberId}`);
+
+        const modal = document.querySelector('.message-sender-modal');
+        if (modal) {
+            updateStatsDisplay(modal);
+        }
+
+        tracking.nextIndex++;
+
+        if (tracking.nextIndex < seriesMessages.length && seriesMessages[tracking.nextIndex].text.trim()) {
+            const nextDelay = seriesMessages[tracking.nextIndex].delay * 1000;
+            console.log(`Scheduling message ${tracking.nextIndex + 1} to ${memberId} in ${nextDelay}ms`);
+
+            if (tracking.timeoutId) {
+                clearTimeout(tracking.timeoutId);
+            }
+
+            tracking.timeoutId = setTimeout(() => {
+                if (sendingInProgress) {
+                    sendSeriesMessage(memberId, tracking.messageId, tracking.mode, tracking.regularId);
+                }
+            }, nextDelay);
+
+            return true;
+        } else {
+            pendingSeriesMessages.delete(memberId);
+            return false;
+        }
+    } catch (error) {
+        if (error.message === 'Rate limit reached' || error.message === 'Rate limit pause active') {
+            console.log(`Rate limit reached for series message to ${memberId}, will retry later`);
+
+            tracking.retryCount = (tracking.retryCount || 0) + 1;
+
+            if (tracking.retryCount > 3) {
+                console.log(`Max retry count reached for ${memberId}, giving up`);
+                pendingSeriesMessages.delete(memberId);
+                return false;
+            }
+
+            if (tracking.timeoutId) {
+                clearTimeout(tracking.timeoutId);
+            }
+
+            const retryDelay = (pauseUntil ? Math.max(0, pauseUntil - Date.now()) : 60000) + 1000;
+
+            tracking.timeoutId = setTimeout(() => {
+                if (sendingInProgress) {
+                    sendSeriesMessage(memberId, tracking.messageId, tracking.mode, tracking.regularId);
+                }
+            }, retryDelay);
+
+            const modal = document.querySelector('.message-sender-modal');
+            if (modal) {
+                updateStatsDisplay(modal);
+            }
+        } else {
+            console.error(`Error sending series message to ${memberId}:`, error);
+
+            const modal = document.querySelector('.message-sender-modal');
+            if (modal) {
+                updateStatsDisplay(modal);
+            }
+
+            pendingSeriesMessages.delete(memberId);
+        }
+    }
+
+    return false;
+}
 
 async function createModal() {
     const shouldInit = await shouldInitialize();
@@ -1745,7 +2605,111 @@ async function createModal() {
             </div>
         </div>
     `;
+    modal.querySelector('.message-input').insertAdjacentHTML('afterend', `
+        <div class="message-series-toggle">
+            <div class="checkbox-wrapper">
+                <input type="checkbox" id="enableMessageSeries">
+                <label for="enableMessageSeries">Enable Message Series (send up to 5 messages per user)</label>
+            </div>
+        </div>
+        
+        <div class="message-series-container">
+            <div class="series-message" data-index="0">
+                <div class="series-message-header">
+                    <h4>First Message</h4>
+                </div>
+                <div class="series-photo-container">
+                    <button class="series-photo-button action-button" data-index="0">Select Photo</button>
+                    <div class="series-selected-photo" style="display: none;">
+                        <span>Selected Photo ID: <strong></strong></span>
+                        <button class="series-remove-photo">×</button>
+                    </div>
+                </div>
+                <textarea class="series-message-input" placeholder="Enter your first message..."></textarea>
+            </div>
+            
+            ${[1, 2, 3, 4].map(index => `
+                <div class="series-message" data-index="${index}">
+                    <div class="series-message-header">
+                        <h4>Message ${index + 1}</h4>
+                        <div class="series-delay-container">
+                            <label>Delay:</label>
+                            <input type="number" class="series-delay" min="5" value="${seriesMessages[index].delay}" data-index="${index}"> sec
+                        </div>
+                    </div>
+                    <div class="series-photo-container">
+                        <button class="series-photo-button action-button" data-index="${index}">Select Photo</button>
+                        <div class="series-selected-photo" style="display: none;">
+                            <span>Selected Photo ID: <strong></strong></span>
+                            <button class="series-remove-photo">×</button>
+                        </div>
+                    </div>
+                    <textarea class="series-message-input" placeholder="Enter message ${index + 1}..."></textarea>
+                </div>
+            `).join('')}
+        </div>
+    `);
 
+    const seriesToggle = modal.querySelector('#enableMessageSeries');
+    const seriesContainer = modal.querySelector('.message-series-container');
+    const regularMessageInput = modal.querySelector('.message-input');
+    const mainPhotoButton = photoButton;
+    const mainPhotoDisplay = selectedPhotoDisplay;
+
+    seriesToggle.addEventListener('change', () => {
+        enableMessageSeries = seriesToggle.checked;
+        seriesContainer.classList.toggle('active', enableMessageSeries);
+
+        regularMessageInput.style.display = enableMessageSeries ? 'none' : 'block';
+        mainPhotoButton.style.display = enableMessageSeries ? 'none' : 'block';
+        mainPhotoDisplay.style.display = enableMessageSeries ? 'none' :
+            (modal.dataset.selectedPhotoId ? 'flex' : 'none');
+
+        if (enableMessageSeries) {
+            const firstSeriesInput = modal.querySelector('.series-message[data-index="0"] .series-message-input');
+            if (firstSeriesInput && !firstSeriesInput.value.trim() && regularMessageInput.value.trim()) {
+                firstSeriesInput.value = regularMessageInput.value;
+                seriesMessages[0].text = regularMessageInput.value;
+            }
+        }
+    });
+
+    modal.querySelectorAll('.series-photo-button').forEach(button => {
+        const index = parseInt(button.dataset.index);
+        const photoContainer = button.closest('.series-photo-container');
+        const photoDisplay = photoContainer.querySelector('.series-selected-photo');
+
+        button.addEventListener('click', () => {
+            const photoModal = createPhotoModal((photoId) => {
+                seriesMessages[index].photoId = photoId;
+                photoDisplay.style.display = 'flex';
+                photoDisplay.querySelector('strong').textContent = photoId;
+            });
+            document.body.appendChild(photoModal);
+        });
+
+        const removeButton = photoContainer.querySelector('.series-remove-photo');
+        if (removeButton) {
+            removeButton.addEventListener('click', () => {
+                seriesMessages[index].photoId = '';
+                photoDisplay.style.display = 'none';
+            });
+        }
+    });
+
+    modal.querySelectorAll('.series-message-input').forEach(input => {
+        const index = parseInt(input.closest('.series-message').dataset.index);
+        input.addEventListener('input', () => {
+            seriesMessages[index].text = input.value;
+        });
+    });
+
+    modal.querySelectorAll('.series-delay').forEach(input => {
+        const index = parseInt(input.dataset.index);
+        input.addEventListener('input', () => {
+            seriesMessages[index].delay = parseInt(input.value) || 30;
+        });
+    });
     const toggleButton = document.createElement('div');
     toggleButton.className = 'message-sender-toggle';
     toggleButton.innerHTML = MESSAGE_ICON;
@@ -1853,7 +2817,7 @@ function toggleModal(modal, toggleButton) {
 let sentIds = new Set();
 let failedIds = new Set();
 
-function createStatsDisplay(modal, sentCount, failedCount, remainingCount, targetGroup, isClickable) {
+function createStatsDisplay(modal, sentCount, failedCount, remainingCount, targetGroup, isClickable, cycleCount = null) {
     const statsDisplay = modal.querySelector('.stats-display');
     statsDisplay.innerHTML = '';
     const additionalStats = document.createElement('div');
@@ -1871,7 +2835,6 @@ function createStatsDisplay(modal, sentCount, failedCount, remainingCount, targe
     });
     sentContainer.appendChild(sentValue);
 
-
     const failedContainer = document.createElement('span');
     failedContainer.textContent = ' | Failed: ';
     const failedValue = document.createElement('span');
@@ -1884,7 +2847,6 @@ function createStatsDisplay(modal, sentCount, failedCount, remainingCount, targe
     });
     failedContainer.appendChild(failedValue);
 
-
     const remainingText = document.createElement('span');
     remainingText.textContent = ` | Remaining: ${remainingCount}`;
 
@@ -1893,11 +2855,72 @@ function createStatsDisplay(modal, sentCount, failedCount, remainingCount, targe
     mainStats.appendChild(remainingText);
     statsDisplay.appendChild(mainStats);
 
+    if (enableMessageSeries) {
+        const seriesStats = document.createElement('div');
+        seriesStats.style.marginTop = '10px';
 
+        const seriesTable = document.createElement('table');
+        seriesTable.style.width = '100%';
+        seriesTable.style.borderCollapse = 'collapse';
 
+        let tableHtml = `
+            <tr>
+                <th align="left">Message</th>
+                <th align="left">Sent</th>
+                <th align="left">Failed</th>
+            </tr>
+        `;
+
+        for (let i = 0; i < messagingStats.series.length; i++) {
+            if (i === 0 || seriesMessages[i].text.trim()) {
+                tableHtml += `<tr>
+                    <td>Message ${i + 1}</td>
+                    <td><span class="series-sent-count" data-index="${i}">${messagingStats.series[i].sent}</span></td>
+                    <td><span class="series-failed-count" data-index="${i}">${messagingStats.series[i].failed}</span></td>
+                </tr>`;
+            }
+        }
+
+        seriesTable.innerHTML = tableHtml;
+        seriesStats.appendChild(seriesTable);
+        statsDisplay.appendChild(seriesStats);
+
+        seriesTable.querySelectorAll('.series-sent-count').forEach(element => {
+            const index = parseInt(element.dataset.index);
+            if (seriesSentIds[index] && seriesSentIds[index].size > 0) {
+                element.className = 'stats-clickable';
+                element.addEventListener('click', () => {
+                    showIdListModal(`Message ${index + 1} Sent IDs`, seriesSentIds[index]);
+                });
+            } else {
+                element.className = 'stats-non-clickable';
+            }
+        });
+
+        seriesTable.querySelectorAll('.series-failed-count').forEach(element => {
+            const index = parseInt(element.dataset.index);
+            if (seriesFailedIds[index] && seriesFailedIds[index].size > 0) {
+                element.className = 'stats-clickable';
+                element.addEventListener('click', () => {
+                    showIdListModal(`Message ${index + 1} Failed IDs`, seriesFailedIds[index]);
+                });
+            } else {
+                element.className = 'stats-non-clickable';
+            }
+        });
+    }
+
+    if (cycleCount !== null) {
+        const cycleInfo = document.createElement('div');
+        cycleInfo.textContent = `Cycle: ${cycleCount}`;
+        cycleInfo.style.marginTop = '5px';
+        additionalStats.appendChild(cycleInfo);
+    }
 
     if ((targetGroup === 'online' || targetGroup === 'inbox' || targetGroup === 'read') && sendingInProgress) {
-        statsDisplay.appendChild(document.createTextNode(`Current Page: ${currentPage}`));
+        const pageInfo = document.createElement('div');
+        pageInfo.textContent = `Current Page: ${currentPage}`;
+        additionalStats.appendChild(pageInfo);
     }
 
     if (startTime) {
@@ -1908,16 +2931,23 @@ function createStatsDisplay(modal, sentCount, failedCount, remainingCount, targe
     }
 
     if (rateLimitedIds.size > 0) {
-        statsDisplay.appendChild(document.createTextNode(` | Rate Limited: ${rateLimitedIds.size}`));
+        const rateInfo = document.createElement('div');
+        rateInfo.textContent = `Rate Limited: ${rateLimitedIds.size}`;
+        additionalStats.appendChild(rateInfo);
     }
 
     if (pauseUntil) {
         const remainingPause = pauseUntil - Date.now();
         if (remainingPause > 0) {
-            statsDisplay.appendChild(document.createTextNode(` | Resuming in: ${formatTime(remainingPause)}`));
+            const pauseInfo = document.createElement('div');
+            pauseInfo.textContent = `Resuming in: ${formatTime(remainingPause)}`;
+            additionalStats.appendChild(pauseInfo);
         }
     }
+
     statsDisplay.appendChild(additionalStats);
+
+
     if (errorStats.duplicate.size > 0 || errorStats.tooShort.size > 0 ||
         errorStats.invisible.size > 0 || errorStats.inactive.size > 0 ||
         errorStats.other.size > 0 || errorStats.accessDenied.size > 0) {
@@ -1952,6 +2982,8 @@ function createStatsDisplay(modal, sentCount, failedCount, remainingCount, targe
 }
 
 
+
+
 function updateStatsDisplay(modal) {
     if (!modal) {
         console.warn('Modal is undefined in updateStatsDisplay');
@@ -1973,7 +3005,11 @@ function updateStatsDisplay(modal) {
     const targetGroup = targetGroupElement.value;
     const displayRemaining = Math.max(0, messagingStats.remaining);
 
-    const isClickable = true;
+    const enableCyclingElement = modal.querySelector('#enableCycling');
+    const isCyclingEnabled = enableCyclingElement && enableCyclingElement.checked;
+    const isInboxOrRead = targetGroup === 'inbox' || targetGroup === 'read';
+
+    const showCycleCount = isInboxOrRead && isCyclingEnabled ? cycleCount : null;
 
     createStatsDisplay(
         modal,
@@ -1981,9 +3017,11 @@ function updateStatsDisplay(modal) {
         messagingStats.failed,
         displayRemaining,
         targetGroup,
-        isClickable
+        true,
+        showCycleCount
     );
 }
+
 function initializeMessagingControls(modal) {
     const targetGroup = modal.querySelector('#targetGroup');
     const selectedIdsSection = modal.querySelector('.selected-ids-section');
@@ -1994,7 +3032,19 @@ function initializeMessagingControls(modal) {
     const stopButton = modal.querySelector('#stopButton');
     const messageInput = modal.querySelector('.message-input');
 
+    const enableCyclingWrapper = document.createElement('div');
+    enableCyclingWrapper.className = 'checkbox-wrapper';
+    enableCyclingWrapper.id = 'enableCyclingWrapper';
+    enableCyclingWrapper.style.display = 'none';
+    enableCyclingWrapper.innerHTML = `
+        <input type="checkbox" id="enableCycling">
+        <label for="enableCycling">Enable cycling</label>
+    `;
+
+    onlineOnlyWrapper.parentNode.insertBefore(enableCyclingWrapper, onlineOnlyWrapper.nextSibling);
+
     onlineOnlyWrapper.style.display = 'none';
+    enableCyclingWrapper.style.display = 'none';
 
     targetGroup.addEventListener('change', (event) => {
         selectedIdsSection.style.display =
@@ -2005,15 +3055,30 @@ function initializeMessagingControls(modal) {
 
         onlineOnlyWrapper.style.display =
             (event.target.value === 'inbox' || event.target.value === 'read') ? 'block' : 'none';
+
+        enableCyclingWrapper.style.display =
+            (event.target.value === 'inbox' || event.target.value === 'read') ? 'block' : 'none';
     });
 
     blacklistIds.addEventListener('input', updateBlacklist);
 
     startButton.addEventListener('click', async () => {
-        if (!messageInput.value.trim()) {
-            alert('Please enter a message');
-            return;
+        const seriesToggle = modal.querySelector('#enableMessageSeries');
+        const isSeriesEnabled = seriesToggle && seriesToggle.checked;
+
+        if (isSeriesEnabled) {
+            const firstSeriesInput = modal.querySelector('.series-message[data-index="0"] .series-message-input');
+            if (!firstSeriesInput || !firstSeriesInput.value.trim()) {
+                alert('Please enter at least the first message in the series');
+                return;
+            }
+        } else {
+            if (!messageInput.value.trim()) {
+                alert('Please enter a message');
+                return;
+            }
         }
+
         await startSending(modal);
     });
 
@@ -2047,7 +3112,6 @@ function initializeMessagingControls(modal) {
 
     updateBlacklist();
 }
-
 async function stopSending(modal) {
     if (!sendingInProgress) {
         return;
@@ -2082,6 +3146,13 @@ async function stopSending(modal) {
         messageProcessingTimeout = null;
     }
 
+    pendingSeriesMessages.forEach(data => {
+        if (data.timeoutId) {
+            clearTimeout(data.timeoutId);
+        }
+    });
+    pendingSeriesMessages.clear();
+
     currentOnlineUsers.clear();
     initialDataReceived.onlinePages.clear();
     initialDataReceived.onlineFinished = false;
@@ -2100,301 +3171,8 @@ async function stopSending(modal) {
     console.log('Message sending process stopped successfully');
     completeSound.play().catch(err => console.log('Error playing sound:', err));
 }
-async function handleActiveUsers(modal, message, speedValue, photoId, excludeFavorites) {
-    return new Promise((resolve, reject) => {
-        chrome.storage.local.get(null, async (result) => {
-            try {
-                const favorites = excludeFavorites ? await getFavorites() : new Set();
-                const processedActiveUsers = Object.entries(result)
-                    .filter(([key, value]) => {
-                        if (!key.startsWith('user_') || !value) return false;
-                        const credits = parseFloat(value.credits || '0');
-                        const minutes = parseInt(value.minutes || '0');
-                        const userId = Number(key.replace('user_', ''));
-                        return (credits > 0 || minutes > 0) &&
-                            !blacklistedIds.has(userId) &&
-                            !favorites.has(userId);
-                    })
-                    .map(([key]) => ({
-                        regularId: Number(key.replace('user_', '')),
-                        memberId: null
-                    }));
 
-                messagingStats.remaining = processedActiveUsers.length;
-                updateStatsDisplay(modal);
 
-                for (const user of processedActiveUsers) {
-                    if (!sendingInProgress) break;
-
-                    while (pauseUntil && Date.now() < pauseUntil) {
-                        if (!sendingInProgress) break;
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        updateStatsDisplay(modal);
-                        continue;
-                    }
-
-                    try {
-                        const memberId = await getMemberIdFromProfile(user.regularId);
-                        if (!memberId) continue;
-
-                        await sendMessage(memberId, message, '', '', photoId, user.regularId);
-
-                        const speed = SENDING_SPEEDS[speedValue];
-                        if (speed.delay > 0) {
-                            await new Promise(resolve => setTimeout(resolve, speed.delay));
-                        }
-                    } catch (error) {
-                        if (error.message === 'Rate limit reached') {
-                            continue; // Will loop back to check pauseUntil
-                        }
-                        console.error(`Error processing active user ${user.regularId}:`, error);
-                    }
-                    updateStatsDisplay(modal);
-                }
-                resolve();
-            } catch (error) {
-                reject(error);
-            }
-        });
-    });
-}
-
-async function handleAllSavedUsers(modal, message, speedValue, photoId, excludeFavorites) {
-    return new Promise((resolve, reject) => {
-        chrome.storage.local.get(['subscribedIds'], async (result) => {
-            try {
-                const favorites = excludeFavorites ? await getFavorites() : new Set();
-                const processedSavedUsers = (result.subscribedIds || [])
-                    .filter(id => {
-                        const numId = Number(id);
-                        return !blacklistedIds.has(numId) && !favorites.has(numId);
-                    })
-                    .map(id => ({
-                        regularId: Number(id),
-                        memberId: null
-                    }));
-
-                messagingStats.remaining = processedSavedUsers.length;
-                updateStatsDisplay(modal);
-
-                for (const user of processedSavedUsers) {
-                    if (!sendingInProgress) break;
-
-                    while (pauseUntil && Date.now() < pauseUntil) {
-                        if (!sendingInProgress) break;
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        updateStatsDisplay(modal);
-                    }
-
-                    try {
-                        const memberId = await getMemberIdFromProfile(user.regularId);
-                        if (!memberId) continue;
-
-                        await sendMessage(memberId, message, '', '', photoId, user.regularId);
-
-                        const speed = SENDING_SPEEDS[speedValue];
-                        if (speed.delay > 0) {
-                            await new Promise(resolve => setTimeout(resolve, speed.delay));
-                        }
-                    } catch (error) {
-                        if (error.message === 'Rate limit reached') {
-                            continue;
-                        }
-                        console.error(`Error processing saved user ${user.regularId}:`, error);
-                    }
-                    updateStatsDisplay(modal);
-                }
-                resolve();
-            } catch (error) {
-                reject(error);
-            }
-        });
-    });
-}
-
-async function handleSelectedIds(modal, message, speedValue, photoId, excludeFavorites) {
-    try {
-        const selectedIdsInput = modal.querySelector('#selectedIds');
-        const favorites = excludeFavorites ? await getFavorites() : new Set();
-
-        const processedSelectedIds = selectedIdsInput.value
-            .split('\n')
-            .map(id => id.trim())
-            .filter(id => id && !isNaN(id))
-            .map(id => ({
-                regularId: Number(id),
-                memberId: null
-            }))
-            .filter(user => !blacklistedIds.has(user.regularId) && !favorites.has(user.regularId));
-
-        messagingStats.remaining = processedSelectedIds.length;
-        updateStatsDisplay(modal);
-
-        for (const user of processedSelectedIds) {
-            if (!sendingInProgress) break;
-
-            while (pauseUntil && Date.now() < pauseUntil) {
-                if (!sendingInProgress) break;
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                updateStatsDisplay(modal);
-            }
-
-            try {
-                const memberId = await getMemberIdFromProfile(user.regularId);
-                if (!memberId) continue;
-
-                await sendMessage(memberId, message, '', '', photoId, user.regularId);
-
-                const speed = SENDING_SPEEDS[speedValue];
-                if (speed.delay > 0) {
-                    await new Promise(resolve => setTimeout(resolve, speed.delay));
-                }
-            } catch (error) {
-                if (error.message === 'Rate limit reached') {
-                    continue;
-                }
-                console.error(`Error processing selected ID ${user.regularId}:`, error);
-            }
-            updateStatsDisplay(modal);
-        }
-    } catch (error) {
-        console.error('Error in handleSelectedIds:', error);
-        throw error;
-    }
-}
-async function handleContacts(modal, message, speedValue, photoId, excludeFavorites) {
-    return new Promise((resolve, reject) => {
-        const contactsHandler = async (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === "user-contacts-response") {
-                    if (!data.payload) {
-                        ws.removeEventListener("message", contactsHandler);
-                        resolve();
-                        return;
-                    }
-
-                    const favorites = excludeFavorites ? await getFavorites() : new Set();
-                    const processedContacts = Object.values(data.payload)
-                        .filter(user => {
-                            const regularId = Number(user.id);
-                            return !blacklistedIds.has(regularId) && !favorites.has(regularId);
-                        })
-                        .map(user => ({
-                            memberId: user.member_id,
-                            regularId: Number(user.id)
-                        }));
-
-                    messagingStats.remaining = processedContacts.length;
-                    updateStatsDisplay(modal);
-
-                    for (const contact of processedContacts) {
-                        if (!sendingInProgress) break;
-
-                        while (pauseUntil && Date.now() < pauseUntil) {
-                            if (!sendingInProgress) break;
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                            updateStatsDisplay(modal);
-                        }
-
-                        try {
-                            await sendMessage(contact.memberId, message, '', '', photoId, contact.regularId);
-
-                            const speed = SENDING_SPEEDS[speedValue];
-                            if (speed.delay > 0) {
-                                await new Promise(resolve => setTimeout(resolve, speed.delay));
-                            }
-                        } catch (error) {
-                            if (error.message === 'Rate limit reached') {
-                                continue; // Will loop back and check pauseUntil
-                            }
-                            console.error(`Error processing contact ${contact.memberId}:`, error);
-                        }
-                        updateStatsDisplay(modal);
-                    }
-
-                    ws.removeEventListener("message", contactsHandler);
-                    resolve();
-                }
-            } catch (error) {
-                ws.removeEventListener("message", contactsHandler);
-                reject(error);
-            }
-        };
-
-        ws.addEventListener("message", contactsHandler);
-        activeEventHandlers.add(contactsHandler);
-        ws.send(JSON.stringify({
-            type: "user-contacts-request",
-            other_id: ""
-        }));
-    });
-}
-
-async function handleFavorites(modal, message, speedValue, photoId) {
-    return new Promise((resolve, reject) => {
-        const favoritesHandler = async (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === "favorites-response") {
-                    if (!data.payload) {
-                        ws.removeEventListener("message", favoritesHandler);
-                        resolve();
-                        return;
-                    }
-
-                    const processedFavorites = data.payload
-                        .filter(item => !blacklistedIds.has(Number(item.profile_to)))
-                        .map(item => ({
-                            regularId: Number(item.profile_to),
-                            memberId: null
-                        }));
-
-                    messagingStats.remaining = processedFavorites.length;
-                    updateStatsDisplay(modal);
-
-                    for (const favorite of processedFavorites) {
-                        if (!sendingInProgress) break;
-
-                        while (pauseUntil && Date.now() < pauseUntil) {
-                            if (!sendingInProgress) break;
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                            updateStatsDisplay(modal);
-                        }
-
-                        try {
-                            const memberId = await getMemberIdFromProfile(favorite.regularId);
-                            if (!memberId) continue;
-
-                            await sendMessage(memberId, message, '', '', photoId, favorite.regularId);
-
-                            const speed = SENDING_SPEEDS[speedValue];
-                            if (speed.delay > 0) {
-                                await new Promise(resolve => setTimeout(resolve, speed.delay));
-                            }
-                        } catch (error) {
-                            if (error.message === 'Rate limit reached') {
-                                continue;
-                            }
-                            console.error(`Error processing favorite ${favorite.regularId}:`, error);
-                        }
-                        updateStatsDisplay(modal);
-                    }
-
-                    ws.removeEventListener("message", favoritesHandler);
-                    resolve();
-                }
-            } catch (error) {
-                ws.removeEventListener("message", favoritesHandler);
-                reject(error);
-            }
-        };
-
-        ws.addEventListener("message", favoritesHandler);
-        activeEventHandlers.add(favoritesHandler);
-        ws.send(JSON.stringify({ type: "favorites-request" }));
-    });
-}
 async function handleOnlineUsers(modal, message, speedValue, photoId = '') {
     memberToRegularId.clear();
     currentOnlineUsers.clear();
@@ -2496,6 +3274,7 @@ async function handleOnlineUsers(modal, message, speedValue, photoId = '') {
                     continue;
                 }
                 console.error(`Failed to process message for ${user.memberId}:`, error);
+                continue;
             }
             updateStatsDisplay(modal);
         }
@@ -2683,51 +3462,82 @@ async function startSending(modal) {
         const targetGroup = modal.querySelector('#targetGroup').value;
         const speedValue = modal.querySelector('#sendingSpeed').value;
         const excludeFavorites = modal.querySelector('#excludeFavorites').checked;
-        const favorites = excludeFavorites ? await getFavorites() : new Set();
+        const seriesToggle = modal.querySelector('#enableMessageSeries');
+        const isSeriesEnabled = seriesToggle && seriesToggle.checked;
 
-        console.log('Selected target group:', targetGroup);
-        console.log('Selected speed:', speedValue, 'messages/sec');
-        console.log('Exclude favorites:', excludeFavorites);
+        let message = '';
+        let selectedPhotoId = '';
+
+        if (isSeriesEnabled) {
+            const firstSeriesInput = modal.querySelector('.series-message[data-index="0"] .series-message-input');
+            if (!firstSeriesInput || !firstSeriesInput.value.trim()) {
+                alert('Please enter at least the first message in the series');
+                toggleControls(modal, false);
+                return;
+            }
+            message = firstSeriesInput.value.trim();
+
+            const photoDisplay = modal.querySelector('.series-message[data-index="0"] .series-selected-photo strong');
+            if (photoDisplay && photoDisplay.textContent) {
+                selectedPhotoId = photoDisplay.textContent;
+            } else {
+                selectedPhotoId = seriesMessages[0].photoId || '';
+            }
+
+            seriesMessages[0].text = message;
+        } else {
+            if (!messageInput.value.trim()) {
+                alert('Please enter a message');
+                toggleControls(modal, false);
+                return;
+            }
+            message = messageInput.value;
+            selectedPhotoId = modal.dataset.selectedPhotoId || '';
+        }
 
         startButton.disabled = true;
         stopButton.disabled = false;
 
-        const message = messageInput.value;
-        const selectedPhotoId = modal.dataset.selectedPhotoId || '';
         clearErrorStats();
         sentIds.clear();
         failedIds.clear();
         messagingStats.sent = 0;
         messagingStats.failed = 0;
         messagingStats.remaining = 0;
+
+        for (let i = 0; i < seriesSentIds.length; i++) {
+            seriesSentIds[i].clear();
+            seriesFailedIds[i].clear();
+        }
+
+        for (let i = 0; i < messagingStats.series.length; i++) {
+            messagingStats.series[i].sent = 0;
+            messagingStats.series[i].failed = 0;
+        }
+
         updateStatsDisplay(modal);
 
-
-            try {
-                if (targetGroup === 'online') {
-                    await handleOnlineUsers(modal, message, speedValue, selectedPhotoId);
-                } else if (targetGroup === 'contacts') {
-                    await handleContacts(modal, message, speedValue, selectedPhotoId, excludeFavorites);
-                } else if (targetGroup === 'favorites') {
-                    await handleFavorites(modal, message, speedValue, selectedPhotoId);
-                } else if (targetGroup === 'activeUsers') {
-                    await handleActiveUsers(modal, message, speedValue, selectedPhotoId, excludeFavorites);
-                } else if (targetGroup === 'allSaved') {
-                    await handleAllSavedUsers(modal, message, speedValue, selectedPhotoId, excludeFavorites);
-                } else if (targetGroup === 'selectedIds') {
-                    await handleSelectedIds(modal, message, speedValue, selectedPhotoId, excludeFavorites);
-                } else if (targetGroup === 'inbox' || targetGroup === 'read') {
-                    await handleMessagesList(modal, message, speedValue, targetGroup);
-                }
-
-
-
-            } catch (error) {
-                console.error(`Error processing ${targetGroup}:`, error);
-                stopSending(modal);
-                alert(`Error occurred while processing ${targetGroup}. Check console for details.`);
+        try {
+            if (targetGroup === 'online') {
+                await handleOnlineUsers(modal, message, speedValue, selectedPhotoId);
+            } else if (targetGroup === 'contacts') {
+                await handleContacts(modal, message, speedValue, selectedPhotoId, excludeFavorites);
+            } else if (targetGroup === 'favorites') {
+                await handleFavorites(modal, message, speedValue, selectedPhotoId);
+            } else if (targetGroup === 'activeUsers') {
+                await handleActiveUsers(modal, message, speedValue, selectedPhotoId, excludeFavorites);
+            } else if (targetGroup === 'allSaved') {
+                await handleAllSavedUsers(modal, message, speedValue, selectedPhotoId, excludeFavorites);
+            } else if (targetGroup === 'selectedIds') {
+                await handleSelectedIds(modal, message, speedValue, selectedPhotoId, excludeFavorites);
+            } else if (targetGroup === 'inbox' || targetGroup === 'read') {
+                await handleMessagesList(modal, message, speedValue, targetGroup);
             }
-
+        } catch (error) {
+            console.error(`Error processing ${targetGroup}:`, error);
+            stopSending(modal);
+            alert(`Error occurred while processing ${targetGroup}. Check console for details.`);
+        }
 
         const stopHandler = () => {
             stopSending(modal);
